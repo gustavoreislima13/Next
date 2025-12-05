@@ -1,0 +1,5 @@
+{
+  "name": "Nexus Enterprise OS",
+  "description": "Um sistema de gestão empresarial completo (ERP) com CRM, Financeiro, Dashboard BI, Precificação e Inteligência Artificial integrada via Gemini API.",
+  "requestFramePermissions": []
+}
