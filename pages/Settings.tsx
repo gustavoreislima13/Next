@@ -111,23 +111,50 @@ export const Settings: React.FC = () => {
     link.click();
   };
 
+  // --- Smart CSV Parsing ---
+  const normalizeHeader = (h: string) => h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
   const parseCSV = (text: string) => {
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
     
-    // Header check
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    // Parse Headers
+    const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const headers = rawHeaders.map(normalizeHeader);
     
     return lines.slice(1).map(line => {
-      // Simple split by comma, ignoring quotes (basic implementation)
-      // A robust parser would use regex for commas inside quotes
+      // Regex to split by comma but ignore commas inside quotes
       const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      
       const obj: any = {};
-      headers.forEach((h, i) => {
-        let val = values[i]?.trim();
-        if (val && val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+      
+      // Generic Raw Mapping
+      rawHeaders.forEach((h, i) => {
+        let val = values[i]?.trim() || '';
+        if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
         obj[h] = val;
       });
+
+      // Smart Mapping to System Fields
+      headers.forEach((h, i) => {
+        let val = values[i]?.trim() || '';
+        if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+
+        // Map Name
+        if (['name', 'nome', 'cliente', 'nome do cliente', 'razao social', 'razao'].includes(h)) obj.mapped_name = val;
+        // Map CPF/CNPJ
+        if (['cpf', 'cnpj', 'documento', 'doc', 'cpf/cnpj'].includes(h)) obj.mapped_cpf = val;
+        // Map Email
+        if (['email', 'e-mail', 'mail', 'correio'].includes(h)) obj.mapped_email = val;
+        // Map Mobile
+        if (['mobile', 'celular', 'telefone', 'tel', 'whatsapp', 'phone'].includes(h)) obj.mapped_mobile = val;
+        
+        // Map Transaction Fields
+        if (['amount', 'valor', 'preco', 'total'].includes(h)) obj.mapped_amount = val;
+        if (['description', 'descricao', 'historico'].includes(h)) obj.mapped_desc = val;
+        if (['date', 'data', 'dia'].includes(h)) obj.mapped_date = val;
+      });
+
       return obj;
     });
   };
@@ -150,22 +177,27 @@ export const Settings: React.FC = () => {
         
         if (type === 'clients') {
             const clients: Client[] = rows.map((r: any) => ({
-                id: r.id || crypto.randomUUID(),
-                name: r.name || 'Sem Nome',
-                cpf: r.cpf || '',
-                mobile: r.mobile || '',
-                email: r.email || '',
-                createdAt: r.createdAt || new Date().toISOString()
+                id: crypto.randomUUID(),
+                // Use mapped fields if available, otherwise fallback or empty
+                name: r.mapped_name || r.name || r.Nome || 'Sem Nome',
+                cpf: r.mapped_cpf || r.cpf || '',
+                mobile: r.mapped_mobile || r.mobile || '',
+                email: r.mapped_email || r.email || '',
+                createdAt: new Date().toISOString()
             }));
-            await db.bulkUpsertClients(clients);
-            alert(`${clients.length} clientes importados com sucesso!`);
+
+            // Filter out empty names
+            const validClients = clients.filter(c => c.name !== 'Sem Nome' || c.cpf);
+
+            await db.bulkUpsertClients(validClients);
+            alert(`${validClients.length} clientes importados com sucesso!`);
         } else {
              const txs: Transaction[] = rows.map((r: any) => ({
-                id: r.id || crypto.randomUUID(),
-                type: r.type === 'expense' ? 'expense' : 'income',
-                description: r.description || 'Importado via CSV',
-                amount: Number(r.amount) || 0,
-                date: r.date || new Date().toISOString(),
+                id: crypto.randomUUID(),
+                type: (r.type === 'expense' || r.tipo === 'saida') ? 'expense' : 'income',
+                description: r.mapped_desc || r.description || 'Importado via CSV',
+                amount: Number(r.mapped_amount || r.amount || 0),
+                date: r.mapped_date || r.date || new Date().toISOString(),
                 entity: r.entity || 'Geral',
                 category: r.category || 'Outros',
                 observation: r.observation,
@@ -186,6 +218,32 @@ export const Settings: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // --- PDF Import & Repair Logic ---
+
+  const naiveRepairJSON = (jsonStr: string): string => {
+    // 1. Basic Cleanup
+    let cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    // 2. Count brackets to detect truncation
+    let openBraces = (cleaned.match(/{/g) || []).length;
+    let closeBraces = (cleaned.match(/}/g) || []).length;
+    let openBrackets = (cleaned.match(/\[/g) || []).length;
+    let closeBrackets = (cleaned.match(/\]/g) || []).length;
+
+    // 3. Append missing closing brackets
+    // Order matters: usually we are inside an object inside an array, so close } then ]
+    while (closeBraces < openBraces) {
+      cleaned += "}";
+      closeBraces++;
+    }
+    while (closeBrackets < openBrackets) {
+      cleaned += "]";
+      closeBrackets++;
+    }
+
+    return cleaned;
+  };
+
   const handleLegacyPDFImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -196,57 +254,128 @@ export const Settings: React.FC = () => {
     }
 
     setIsImporting(true);
-    setImportLog('Lendo arquivo PDF e extraindo TODOS os dados (Modo Preciso)...');
+    setImportLog('Lendo arquivo PDF em modo de ALTA CAPACIDADE (Batch Processing)...');
 
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
         const base64 = (ev.target?.result as string).split(',')[1];
-        setImportLog('Processando documento... Buscando clientes e transações linha a linha...');
+        setImportLog('Extraindo dados estruturados do documento... Aguarde...');
         
         let txInstruction = '';
         if (importTxType === 'income') {
-          txInstruction = "REGRA CRÍTICA: TODAS as transações extraídas DEVEM ser salvas como TIPO 'income' (Receita), independente se parecem pagamentos.";
+          txInstruction = "Force 'type': 'income' para todas as transações.";
         } else if (importTxType === 'expense') {
-          txInstruction = "REGRA CRÍTICA: TODAS as transações extraídas DEVEM ser salvas como TIPO 'expense' (Despesa).";
+          txInstruction = "Force 'type': 'expense' para todas as transações.";
         } else {
-          txInstruction = "REGRA: Deduza se é 'income' (entrada) ou 'expense' (saída) baseado em colunas de Débito/Crédito ou sinais matemáticos.";
+          txInstruction = "Determine 'income' ou 'expense' pelo contexto (Crédito/Débito).";
         }
 
         const prompt = `
-          ATUAR COMO: Digitador de Dados de Alta Precisão (Data Entry).
-          OBJETIVO: Extrair TODO e QUALQUER dado deste PDF para o banco de dados.
+          TAREFA: Extração em Massa de Dados (Bulk Data Extraction) - EXTREME PRECISION MODE.
           
-          DIRETRIZES RÍGIDAS:
-          1. LEIA TODAS AS LINHAS das tabelas. NÃO RESUMA. Se houver 100 linhas, chame as funções 100 vezes.
-          2. EXTRAÇÃO DE CLIENTES (Prioridade Alta):
-             - Procure colunas como: "Nome do Cliente", "Tomador", "Sacado", "Pagador", "Descrição".
-             - Ao identificar um nome de pessoa ou empresa, use a ferramenta 'add_client'.
-             - TENTE ENCONTRAR: CPF, CNPJ, Email ou Telefone associados na mesma linha ou cabeçalho.
-             - Salve o nome completo exatamente como está no PDF.
-
-          3. EXTRAÇÃO FINANCEIRA:
-             - ${txInstruction}
-             - Identifique: Data, Valor Monetário e Descrição.
-             - Use a ferramenta 'add_transaction' para cada linha financeira.
+          Analise o PDF fornecido. Extraia TODOS os Clientes e TODAS as Transações financeiras encontradas, linha por linha.
           
-          4. NÃO PULE LINHAS.
-          5. NÃO FAÇA CÁLCULOS. Copie os valores originais.
-          6. Se encontrar uma lista de clientes, cadastre TODOS.
-          7. Se encontrar um extrato bancário, cadastre TODAS as movimentações.
+          SAÍDA ESPERADA:
+          Retorne APENAS um objeto JSON válido.
+          {
+            "clients": [
+              { "name": "Nome Completo", "cpf": "000...", "email": "...", "mobile": "..." }
+            ],
+            "transactions": [
+              { "date": "YYYY-MM-DD", "description": "Descrição", "amount": 100.50, "type": "income/expense" }
+            ]
+          }
 
-          Comece a extração agora. Seja extremamente detalhista.
+          REGRAS DE CLIENTES:
+          - Procure por listas de nomes, pagadores, sacados, ou tabelas de cadastro.
+          - Se houver CPF/CNPJ na mesma linha, capture.
+          
+          REGRAS DE TRANSAÇÕES:
+          - ${txInstruction}
+          - Extraia data, descrição e valor numérico.
+          
+          IMPORTANTE:
+          - Capture TUDO. Se houver 500 linhas, retorne 500 objetos.
+          - Se a resposta for ficar muito longa, finalize o JSON corretamente em vez de cortar no meio da sintaxe.
         `;
 
-        const response = await generateBusinessInsight({
+        const responseText = await generateBusinessInsight({
           prompt: prompt,
           document: base64,
-          mode: 'thinking'
+          mode: 'thinking',
+          responseMimeType: 'application/json' // Force strictly valid JSON output
         });
 
-        setImportLog(`Processo finalizado.\n\nRelatório da IA:\n${response}`);
+        // Try to parse, applying repair if necessary
+        let data: any = {};
+        try {
+          data = JSON.parse(responseText);
+        } catch (jsonError) {
+          console.warn("JSON direto falhou, tentando reparo...", jsonError);
+          const repaired = naiveRepairJSON(responseText);
+          try {
+            data = JSON.parse(repaired);
+            setImportLog(prev => prev + "\n⚠️ JSON foi reparado automaticamente (truncamento detectado).");
+          } catch (fatalError: any) {
+            throw new Error(`Falha crítica ao ler JSON da IA: ${fatalError.message}. Tente um PDF menor.`);
+          }
+        }
+        
+        const newClients: Client[] = [];
+        const newTxs: Transaction[] = [];
+
+        if (data.clients && Array.isArray(data.clients)) {
+          data.clients.forEach((c: any) => {
+              if (c.name) {
+                newClients.push({
+                  id: crypto.randomUUID(),
+                  createdAt: new Date().toISOString(),
+                  name: c.name,
+                  cpf: c.cpf || '',
+                  mobile: c.mobile || '',
+                  email: c.email || ''
+                });
+              }
+          });
+        }
+
+        if (data.transactions && Array.isArray(data.transactions)) {
+          data.transactions.forEach((t: any) => {
+            if (t.description && t.amount) {
+              newTxs.push({
+                id: crypto.randomUUID(),
+                type: t.type === 'expense' ? 'expense' : 'income',
+                description: t.description,
+                amount: Number(t.amount),
+                date: t.date || new Date().toISOString(),
+                entity: 'Importado',
+                category: 'Geral'
+              });
+            }
+          });
+        }
+
+        // Save to DB
+        let logMsg = "Processamento Concluído.\n";
+        if (newClients.length > 0) {
+          await db.bulkUpsertClients(newClients);
+          logMsg += `✅ ${newClients.length} Clientes cadastrados.\n`;
+        }
+        if (newTxs.length > 0) {
+          await db.bulkUpsertTransactions(newTxs);
+          logMsg += `✅ ${newTxs.length} Transações registradas.\n`;
+        }
+
+        if (newClients.length === 0 && newTxs.length === 0) {
+          logMsg += "⚠️ Nenhum dado estruturado encontrado no formato esperado.";
+        }
+
+        setImportLog(logMsg);
+
       } catch (error: any) {
-        setImportLog(`Erro na importação: ${error.message}`);
+        setImportLog(`Erro Crítico na Importação: ${error.message}`);
+        console.error(error);
       } finally {
         setIsImporting(false);
       }
@@ -490,7 +619,7 @@ export const Settings: React.FC = () => {
                       <div>
                         <h4 className="font-bold text-purple-900 mb-1">Importar do Sistema Antigo (PDF)</h4>
                         <p className="text-sm text-purple-700">
-                          A I.A. fará uma leitura de <strong>Alta Precisão</strong> para cadastrar clientes, transações e serviços automaticamente.
+                          A I.A. fará uma leitura de <strong>Alta Precisão (JSON Bulk)</strong> para cadastrar clientes e transações. O sistema não usará ferramentas individuais para garantir que 100% dos dados sejam lidos.
                         </p>
                       </div>
 
@@ -523,7 +652,7 @@ export const Settings: React.FC = () => {
                         ${isImporting ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}
                       `}>
                          {isImporting ? <RefreshCw className="animate-spin" /> : <FileUp />}
-                         {isImporting ? 'Processando (Alta Precisão)...' : 'Selecionar Arquivo PDF'}
+                         {isImporting ? 'Processando...' : 'Selecionar Arquivo PDF'}
                          <input 
                            type="file" 
                            accept="application/pdf" 

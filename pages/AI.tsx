@@ -3,7 +3,7 @@ import { generateBusinessInsight, AIMode } from '../services/geminiService';
 import { db } from '../services/db';
 import { StoredFile } from '../types';
 import { Send, Bot, RefreshCw, Key, ArrowRight, Mic, Image as ImageIcon, X, Zap, Brain, Sparkles, StopCircle, Radio, MessageCircle, Paperclip, FileText } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 export const AI: React.FC = () => {
   const [messages, setMessages] = useState<{role: 'user' | 'ai', text: string}[]>([
@@ -216,7 +216,7 @@ export const AI: React.FC = () => {
            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex gap-3 text-amber-900 text-sm">
              <Key className="shrink-0" />
              <div>
-               Configure sua chave API em <NavLink to="/config" className="underline font-bold">Configurações</NavLink>.
+               Configure sua chave API em <Link to="/config" className="underline font-bold">Configurações</Link>.
              </div>
            </div>
         )}

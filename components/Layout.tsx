@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Wallet, Tag, 
   StickyNote, FolderOpen, Bot, Settings, Menu, X, LogOut 
@@ -19,10 +19,10 @@ const navItems = [
 ];
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [user, setUser] = useState<User | null>(db.getCurrentUser());
   const location = useLocation();
   const navigate = useNavigate();
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(db.getCurrentUser());
 
   useEffect(() => {
     const loadUser = () => setUser(db.getCurrentUser());
@@ -60,7 +60,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
-              <NavLink
+              <Link
                 key={item.path}
                 to={item.path}
                 onClick={() => setIsMobileOpen(false)}
@@ -73,7 +73,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               >
                 <item.icon size={18} />
                 {item.label}
-              </NavLink>
+              </Link>
             );
           })}
         </nav>

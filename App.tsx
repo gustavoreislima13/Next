@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ToastProvider } from './components/ToastContext';
 import { db } from './services/db';
@@ -15,12 +15,16 @@ import { AI } from './pages/AI';
 import { Settings } from './pages/Settings';
 import { Login } from './pages/Login';
 
-const ProtectedRoute = () => {
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const user = db.getCurrentUser();
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-  return <Layout><Outlet /></Layout>;
+  return (
+    <Layout>
+      {children}
+    </Layout>
+  );
 };
 
 const App: React.FC = () => {
@@ -30,16 +34,14 @@ const App: React.FC = () => {
         <Routes>
           <Route path="/login" element={<Login />} />
           
-          <Route element={<ProtectedRoute />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/crm" element={<CRM />} />
-            <Route path="/financeiro" element={<Finance />} />
-            <Route path="/precificacao" element={<Pricing />} />
-            <Route path="/mural" element={<Mural />} />
-            <Route path="/arquivos" element={<Files />} />
-            <Route path="/ia" element={<AI />} />
-            <Route path="/config" element={<Settings />} />
-          </Route>
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
+          <Route path="/financeiro" element={<ProtectedRoute><Finance /></ProtectedRoute>} />
+          <Route path="/precificacao" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
+          <Route path="/mural" element={<ProtectedRoute><Mural /></ProtectedRoute>} />
+          <Route path="/arquivos" element={<ProtectedRoute><Files /></ProtectedRoute>} />
+          <Route path="/ia" element={<ProtectedRoute><AI /></ProtectedRoute>} />
+          <Route path="/config" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

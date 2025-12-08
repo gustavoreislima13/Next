@@ -108,19 +108,24 @@ export interface AIRequestOptions {
   document?: string; // Base64 (PDF, Text, etc)
   mimeType?: string;
   mode?: AIMode;
+  responseMimeType?: string;
 }
 
 export const generateBusinessInsight = async (options: AIRequestOptions | string): Promise<string> => {
   const ai = getAIClient();
   if (!ai) return "Erro: Chave de API não configurada.";
 
-  const { prompt, image, audio, document, mimeType, mode = 'standard' } = typeof options === 'string' 
-    ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode } 
+  const { prompt, image, audio, document, mimeType, mode = 'standard', responseMimeType } = typeof options === 'string' 
+    ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode, responseMimeType: undefined } 
     : options;
 
   // Model Selection
   let modelName = 'gemini-2.5-flash'; // Standard fallback
   let config: any = { temperature: 0.4, tools };
+
+  if (responseMimeType) {
+    config.responseMimeType = responseMimeType;
+  }
 
   if (mode === 'fast') {
     modelName = 'gemini-flash-lite-latest'; // Fast
@@ -132,6 +137,10 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
       tools,
       thinkingConfig: { thinkingBudget: 32768 } // Max thinking
     };
+    // Re-apply responseMimeType if it was set, as we overwrote config object
+    if (responseMimeType) {
+      config.responseMimeType = responseMimeType;
+    }
   } else if (image) {
     modelName = 'gemini-3-pro-preview'; // Image analysis
   } else if (audio) {
