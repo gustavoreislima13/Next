@@ -53,6 +53,28 @@ export interface UserProfile {
   avatarUrl: string;
 }
 
+// New Interface for Employee Management
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string; // 'Admin' | 'Vendedor' | 'Financeiro'
+  avatarUrl?: string;
+  password?: string; // Simple check for demo
+  createdAt: string;
+}
+
+// New Interface for Audit Logs
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userName: string;
+  action: 'create' | 'update' | 'delete' | 'login';
+  target: 'Client' | 'Transaction' | 'File' | 'Note' | 'User' | 'System';
+  details: string;
+  timestamp: string;
+}
+
 export interface AppSettings {
   companyName: string;
   cnpj: string;

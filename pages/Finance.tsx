@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
 import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle } from 'lucide-react';
+import { useToast } from '../components/ToastContext';
 
 export const Finance: React.FC = () => {
+  const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -118,6 +120,7 @@ export const Finance: React.FC = () => {
       };
 
       await db.saveTransaction(tx);
+      addToast(`${txType === 'income' ? 'Receita' : 'Despesa'} salva com sucesso!`, 'success');
       await refreshData();
       resetForm();
     } catch (err: any) {
@@ -147,6 +150,7 @@ export const Finance: React.FC = () => {
   const confirmDelete = async () => {
     if (deleteConfirmation.id) {
       await db.deleteTransaction(deleteConfirmation.id);
+      addToast('Transação excluída.', 'info');
       setDeleteConfirmation({ isOpen: false, id: null });
       refreshData();
     }

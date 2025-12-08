@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Wallet, Tag, 
-  StickyNote, FolderOpen, Bot, Settings, Menu, X 
+  StickyNote, FolderOpen, Bot, Settings, Menu, X, LogOut 
 } from 'lucide-react';
 import { db } from '../services/db';
-import { UserProfile } from '../types';
+import { User } from '../types';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,20 +20,23 @@ const navItems = [
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [profile, setProfile] = useState<UserProfile>(db.getUserProfile());
+  const [user, setUser] = useState<User | null>(db.getCurrentUser());
   const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // Listen for updates in local storage or simply refresh on mount
-    const loadProfile = () => setProfile(db.getUserProfile());
-    loadProfile();
-    
-    // Add event listener for profile updates if we trigger them
-    window.addEventListener('profile-updated', loadProfile);
-    return () => window.removeEventListener('profile-updated', loadProfile);
+    const loadUser = () => setUser(db.getCurrentUser());
+    loadUser();
+    window.addEventListener('profile-updated', loadUser);
+    return () => window.removeEventListener('profile-updated', loadUser);
   }, []);
 
   const toggleMobile = () => setIsMobileOpen(!isMobileOpen);
+
+  const handleLogout = () => {
+    db.logout();
+    navigate('/login');
+  };
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -75,20 +78,32 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-700">
-          <div className="flex items-center gap-3">
-            {profile.avatarUrl ? (
-              <img src={profile.avatarUrl} alt="User" className="w-9 h-9 rounded-full object-cover border border-slate-500 bg-slate-800" />
+        <div className="p-4 border-t border-slate-700 space-y-2">
+          <button 
+            onClick={() => navigate('/config?tab=profile')}
+            className="flex items-center gap-3 w-full text-left hover:bg-slate-800 p-2 rounded-lg transition-colors group"
+            title="Editar Perfil"
+          >
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt="User" className="w-9 h-9 rounded-full object-cover border border-slate-500 bg-slate-800 group-hover:border-slate-400" />
             ) : (
-              <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white uppercase border border-emerald-400">
-                {(profile.name || 'User').substring(0, 2)}
+              <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white uppercase border border-emerald-400 group-hover:border-emerald-300">
+                {(user?.name || 'User').substring(0, 2)}
               </div>
             )}
-            <div className="text-sm overflow-hidden">
-              <p className="font-medium text-white truncate">{profile.name || 'Usuário'}</p>
-              <p className="text-xs text-slate-400 truncate">{profile.role || 'Membro'}</p>
+            <div className="text-sm overflow-hidden flex-1">
+              <p className="font-medium text-white truncate group-hover:text-blue-200 transition-colors">{user?.name || 'Usuário'}</p>
+              <p className="text-xs text-slate-400 truncate">{user?.role || 'Membro'}</p>
             </div>
-          </div>
+          </button>
+
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-3 w-full text-left text-slate-400 hover:text-rose-400 hover:bg-slate-800 px-3 py-2 rounded-lg text-sm transition-colors"
+          >
+            <LogOut size={16} />
+            Sair
+          </button>
         </div>
       </aside>
 

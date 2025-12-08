@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client } from '../types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, Users, Target, DollarSign, Activity, RefreshCw } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Users, Target, DollarSign, Activity, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
 
 const Card = ({ title, value, icon: Icon, trend, trendValue, color }: any) => (
   <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
@@ -24,41 +24,26 @@ const Card = ({ title, value, icon: Icon, trend, trendValue, color }: any) => (
   </div>
 );
 
+type RangeMode = 'week' | 'month' | 'all' | 'custom';
+
 export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [metrics, setMetrics] = useState({
-    income: 0,
-    expenses: 0,
-    profit: 0,
-    ticket: 0,
-    activeClients: 0
-  });
+  const [clients, setClients] = useState<Client[]>([]);
+  
+  // Date Filtering State
+  const [rangeMode, setRangeMode] = useState<RangeMode>('week');
+  const [customRange, setCustomRange] = useState({ start: '', end: '' });
 
   const fetchData = async () => {
-    // Only set loading on first load to prevent flickering on realtime updates
     if (transactions.length === 0) setLoading(true);
-    
     try {
       const [txs, cls] = await Promise.all([
         db.getTransactions(),
         db.getClients()
       ]);
-      
       setTransactions(txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-
-      const income = txs.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-      const expenses = txs.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
-      const profit = income - expenses;
-      const ticket = income / (txs.filter(t => t.type === 'income').length || 1);
-
-      setMetrics({
-        income,
-        expenses,
-        profit,
-        ticket,
-        activeClients: cls.length
-      });
+      setClients(cls);
     } catch (error) {
       console.error("Error fetching dashboard data", error);
     } finally {
@@ -68,25 +53,101 @@ export const Dashboard: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    
-    // Subscribe to realtime changes
     const txSub = db.subscribe('transactions', fetchData);
     const clSub = db.subscribe('clients', fetchData);
-
-    return () => {
-      txSub?.unsubscribe();
-      clSub?.unsubscribe();
-    };
+    return () => { txSub?.unsubscribe(); clSub?.unsubscribe(); };
   }, []);
 
-  // Prepare chart data (Weekly mock - in a real app this would be aggregated from transactions)
-  const chartData = [
-    { name: 'Seg', rec: metrics.income * 0.1, desp: metrics.expenses * 0.15 },
-    { name: 'Ter', rec: metrics.income * 0.2, desp: metrics.expenses * 0.1 },
-    { name: 'Qua', rec: metrics.income * 0.15, desp: metrics.expenses * 0.2 },
-    { name: 'Qui', rec: metrics.income * 0.25, desp: metrics.expenses * 0.15 },
-    { name: 'Sex', rec: metrics.income * 0.3, desp: metrics.expenses * 0.4 },
-  ];
+  // Filter Data Logic
+  const filteredData = useMemo(() => {
+    const now = new Date();
+    let start = new Date(0); // Epoch
+    let end = new Date(now.getFullYear() + 10, 0, 1); // Future
+
+    if (rangeMode === 'week') {
+      // Current week (Monday to Sunday)
+      const day = now.getDay() || 7; // Get current day number, converting Sun(0) to 7
+      if (day !== 1) now.setHours(-24 * (day - 1)); // Go back to Monday
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 6, 23, 59, 59);
+    } else if (rangeMode === 'month') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    } else if (rangeMode === 'custom' && customRange.start && customRange.end) {
+      start = new Date(customRange.start);
+      end = new Date(customRange.end);
+      end.setHours(23, 59, 59);
+    }
+
+    const filteredTxs = transactions.filter(t => {
+      const d = new Date(t.date);
+      return d >= start && d <= end;
+    });
+
+    const income = filteredTxs.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const expenses = filteredTxs.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    const profit = income - expenses;
+    const ticket = income / (filteredTxs.filter(t => t.type === 'income').length || 1);
+
+    return { txs: filteredTxs, income, expenses, profit, ticket };
+  }, [transactions, rangeMode, customRange]);
+
+  // Chart Data Preparation
+  const chartData = useMemo(() => {
+    const dataMap = new Map<string, { name: string, rec: number, desp: number, sortKey: number }>();
+    
+    filteredData.txs.forEach(t => {
+      const d = new Date(t.date);
+      let key = '';
+      let name = '';
+      let sortKey = d.getTime();
+
+      if (rangeMode === 'all') {
+        // Group by Month
+        key = `${d.getFullYear()}-${d.getMonth()}`;
+        name = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+        // Normalize sort key to start of month
+        sortKey = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+      } else {
+        // Group by Day
+        key = t.date; // YYYY-MM-DD
+        name = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        if (rangeMode === 'week') {
+            // Add day of week name
+            const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+            name = weekDays[d.getDay()];
+        }
+      }
+
+      if (!dataMap.has(key)) {
+        dataMap.set(key, { name, rec: 0, desp: 0, sortKey });
+      }
+      
+      const entry = dataMap.get(key)!;
+      if (t.type === 'income') entry.rec += t.amount;
+      else entry.desp += t.amount;
+    });
+
+    // Fill missing days for 'Week' view to look pretty
+    if (rangeMode === 'week') {
+        const today = new Date();
+        const currentDay = today.getDay() || 7; 
+        const monday = new Date(today);
+        if (currentDay !== 1) monday.setHours(-24 * (currentDay - 1));
+        
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            const key = d.toISOString().split('T')[0];
+            if (!dataMap.has(key)) {
+                 const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+                 dataMap.set(key, { name: weekDays[d.getDay()], rec: 0, desp: 0, sortKey: d.getTime() });
+            }
+        }
+    }
+
+    return Array.from(dataMap.values()).sort((a, b) => a.sortKey - b.sortKey);
+  }, [filteredData.txs, rangeMode]);
 
   if (loading) {
     return (
@@ -98,53 +159,66 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Visão Geral</h1>
           <p className="text-slate-500 text-sm">Acompanhe a saúde financeira da sua empresa.</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 transition-colors" title="Atualizar Dados">
+        
+        <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex flex-col md:flex-row gap-2">
+          <div className="flex p-1 bg-slate-100 rounded-md">
+             <button onClick={() => setRangeMode('week')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${rangeMode === 'week' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Semana</button>
+             <button onClick={() => setRangeMode('month')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${rangeMode === 'month' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Mês</button>
+             <button onClick={() => setRangeMode('all')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${rangeMode === 'all' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Geral</button>
+             <button onClick={() => setRangeMode('custom')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${rangeMode === 'custom' ? 'bg-white shadow text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}>Personalizado</button>
+          </div>
+          
+          {rangeMode === 'custom' && (
+             <div className="flex items-center gap-2 px-2 animate-fade-in">
+               <input type="date" className="text-xs border rounded px-2 py-1 outline-none" value={customRange.start} onChange={e => setCustomRange({...customRange, start: e.target.value})} />
+               <span className="text-slate-400">-</span>
+               <input type="date" className="text-xs border rounded px-2 py-1 outline-none" value={customRange.end} onChange={e => setCustomRange({...customRange, end: e.target.value})} />
+             </div>
+          )}
+          
+          <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 transition-colors border-l border-slate-200 pl-3 ml-1" title="Atualizar Dados">
             <RefreshCw size={18} />
           </button>
-          <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold border border-blue-100 flex items-center">
-            Mês Atual
-          </span>
         </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card 
-          title="Faturamento Total" 
-          value={`R$ ${metrics.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+          title="Faturamento" 
+          value={`R$ ${filteredData.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           icon={DollarSign}
           trend="up"
-          trendValue="+12%"
+          trendValue="Período"
           color="bg-blue-500"
         />
         <Card 
           title="Despesas" 
-          value={`R$ ${metrics.expenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+          value={`R$ ${filteredData.expenses.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           icon={Activity}
           trend="down"
-          trendValue="-2%"
+          trendValue="Período"
           color="bg-rose-500"
         />
         <Card 
           title="Lucro Líquido" 
-          value={`R$ ${metrics.profit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+          value={`R$ ${filteredData.profit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
           icon={Target}
-          trend={metrics.profit >= 0 ? 'up' : 'down'}
-          trendValue={((metrics.profit / (metrics.income || 1)) * 100).toFixed(1) + '% mg'}
+          trend={filteredData.profit >= 0 ? 'up' : 'down'}
+          trendValue={((filteredData.profit / (filteredData.income || 1)) * 100).toFixed(1) + '% mg'}
           color="bg-emerald-500"
         />
         <Card 
-          title="Clientes Ativos" 
-          value={metrics.activeClients}
+          title="Clientes Totais" 
+          value={clients.length}
           icon={Users}
           trend="up"
-          trendValue="+5"
+          trendValue="Base Total"
           color="bg-purple-500"
         />
       </div>
@@ -152,7 +226,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Chart */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm min-h-[400px]">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Fluxo de Caixa Semanal</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">Fluxo de Caixa ({rangeMode === 'week' ? 'Semanal' : rangeMode === 'month' ? 'Mensal' : rangeMode === 'all' ? 'Histórico' : 'Personalizado'})</h3>
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData}>
@@ -173,20 +247,20 @@ export const Dashboard: React.FC = () => {
         {/* Goal Progress & Recent Activity */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">Meta Mensal</h3>
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Meta Mensal (R$ 100k)</h3>
             <div className="flex items-end gap-2 mb-2">
-              <span className="text-3xl font-bold text-slate-900">68%</span>
-              <span className="text-sm text-slate-500 mb-1">da meta de R$ 100k</span>
+              <span className="text-3xl font-bold text-slate-900">{((filteredData.income / 100000) * 100).toFixed(0)}%</span>
+              <span className="text-sm text-slate-500 mb-1">alcançada</span>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-3">
-              <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: '68%' }}></div>
+              <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.min(((filteredData.income / 100000) * 100), 100)}%` }}></div>
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex-1">
-            <h3 className="text-lg font-semibold text-slate-800 mb-4">Transações Recentes</h3>
-            <div className="space-y-4">
-              {transactions.slice(0, 4).map((t) => (
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Últimas do Período</h3>
+            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+              {filteredData.txs.slice(0, 5).map((t) => (
                 <div key={t.id} className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center ${t.type === 'income' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
@@ -202,8 +276,8 @@ export const Dashboard: React.FC = () => {
                   </span>
                 </div>
               ))}
-              {transactions.length === 0 && (
-                <p className="text-sm text-slate-400 text-center py-4">Nenhuma transação registrada.</p>
+              {filteredData.txs.length === 0 && (
+                <p className="text-sm text-slate-400 text-center py-4">Nenhuma transação neste período.</p>
               )}
             </div>
           </div>

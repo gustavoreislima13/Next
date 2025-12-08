@@ -49,14 +49,27 @@ const addTransactionTool: FunctionDeclaration = {
       amount: { type: Type.NUMBER, description: 'Valor em reais (ex: 150.00)' },
       category: { type: Type.STRING, description: 'Categoria financeira' },
       entity: { type: Type.STRING, description: 'Empresa vinculada (ex: CMG)' },
+      date: { type: Type.STRING, description: 'Data da transação (YYYY-MM-DD)' }
     },
     required: ['type', 'description', 'amount']
   }
 };
 
+const addServiceTypeTool: FunctionDeclaration = {
+  name: 'add_service_type',
+  description: 'Cadastra um novo Tipo de Serviço nas configurações globais do sistema.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      serviceName: { type: Type.STRING, description: 'Nome do serviço (ex: Consultoria, Projeto de Rede)' }
+    },
+    required: ['serviceName']
+  }
+};
+
 const searchDatabaseTool: FunctionDeclaration = {
   name: 'search_database',
-  description: 'Busca dados no banco de dados (clientes ou transações).',
+  description: 'Busca dados textuais simples no banco de dados (ex: nome de cliente ou descrição de compra).',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -67,8 +80,21 @@ const searchDatabaseTool: FunctionDeclaration = {
   }
 };
 
+const getFinancialMetricsTool: FunctionDeclaration = {
+  name: 'get_financial_metrics',
+  description: 'Obtém relatório financeiro consolidado (soma de receitas, despesas, saldo) para um período de datas específico.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      startDate: { type: Type.STRING, description: 'Data inicial YYYY-MM-DD' },
+      endDate: { type: Type.STRING, description: 'Data final YYYY-MM-DD' }
+    },
+    required: ['startDate', 'endDate']
+  }
+};
+
 const tools = [
-  { functionDeclarations: [addClientTool, addTransactionTool, searchDatabaseTool] }
+  { functionDeclarations: [addClientTool, addTransactionTool, addServiceTypeTool, searchDatabaseTool, getFinancialMetricsTool] }
 ];
 
 // --- Execution Logic ---
@@ -79,6 +105,7 @@ export interface AIRequestOptions {
   prompt: string;
   image?: string; // Base64
   audio?: string; // Base64
+  document?: string; // Base64 (PDF, Text, etc)
   mimeType?: string;
   mode?: AIMode;
 }
@@ -87,8 +114,8 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
   const ai = getAIClient();
   if (!ai) return "Erro: Chave de API não configurada.";
 
-  const { prompt, image, audio, mimeType, mode = 'standard' } = typeof options === 'string' 
-    ? { prompt: options, image: undefined, audio: undefined, mimeType: undefined, mode: 'standard' as AIMode } 
+  const { prompt, image, audio, document, mimeType, mode = 'standard' } = typeof options === 'string' 
+    ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode } 
     : options;
 
   // Model Selection
@@ -109,19 +136,24 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     modelName = 'gemini-3-pro-preview'; // Image analysis
   } else if (audio) {
     modelName = 'gemini-2.5-flash'; // Audio transcription
+  } else if (document) {
+    modelName = 'gemini-2.5-flash'; // PDF/Doc processing
   }
 
   // Context Preparation
   const context = await db.getFullContext();
   const systemInstruction = `
-    Você é o Nexus AI. Hoje é ${new Date().toLocaleDateString('pt-BR')}.
-    Contexto do ERP: ${JSON.stringify(context)}
+    Você é o Nexus AI, um assistente de Business Intelligence.
+    Data de Hoje: ${new Date().toISOString().split('T')[0]}.
+    Contexto Geral: ${JSON.stringify(context.summary)}
     
     Instruções:
-    1. Se houver imagem: Analise detalhes visuais (documentos, produtos).
-    2. Se houver áudio: Transcreva e execute a intenção.
-    3. Use as ferramentas (tools) para criar ou buscar dados se solicitado.
-    4. Responda em Português do Brasil.
+    1. Responda em Português do Brasil de forma profissional e direta.
+    2. Para perguntas sobre valores totais em períodos (ex: "Quanto faturei mês passado?"), USE a ferramenta 'get_financial_metrics'. Não tente adivinhar.
+    3. Para criar dados, use 'add_client' ou 'add_transaction'.
+    4. Se identificar novos Tipos de Serviço em documentos ou descrições, use 'add_service_type' para cadastrá-los nas configurações.
+    5. Se houver imagens/PDFs, analise-os para extrair dados ou responder perguntas sobre eles.
+    6. Se o usuário perguntar "Como está minha empresa?", use os dados de resumo e sugira ver detalhes financeiros.
   `;
 
   if (!config.thinkingConfig) {
@@ -134,66 +166,86 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     const messageParts: any[] = [];
     if (image) messageParts.push({ inlineData: { mimeType: mimeType || 'image/jpeg', data: image } });
     if (audio) messageParts.push({ inlineData: { mimeType: mimeType || 'audio/wav', data: audio } });
+    if (document) messageParts.push({ inlineData: { mimeType: mimeType || 'application/pdf', data: document } });
     if (prompt) messageParts.push({ text: prompt });
-    if (messageParts.length === 0) return "Por favor, forneça texto, áudio ou imagem.";
+    
+    if (messageParts.length === 0) return "Por favor, forneça texto, áudio, imagem ou documento.";
 
     let response = await chat.sendMessage({ message: messageParts });
     
-    // Function Calling Loop (Max 5 turns)
+    // Function Calling Loop (Max 10 turns for heavy imports)
     let turns = 0;
-    while (response.functionCalls && response.functionCalls.length > 0 && turns < 5) {
+    while (response.functionCalls && response.functionCalls.length > 0 && turns < 10) {
       turns++;
-      const call = response.functionCalls[0];
-      const args = call.args as any;
-      let result: any = { error: "Erro desconhecido" };
+      // Handle multiple function calls in parallel if the model supports it, 
+      // but here we iterate sequentially for safety.
+      const calls = response.functionCalls;
+      
+      // We need to collect results to send back
+      const functionResponses = [];
 
-      try {
-        if (call.name === 'add_client') {
-          const client: Client = {
-            id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
-            name: args.name,
-            cpf: args.cpf || '',
-            mobile: args.mobile || '',
-            email: args.email || ''
-          };
-          await db.saveClient(client);
-          result = { success: true, id: client.id, message: "Cliente salvo." };
-        } 
-        else if (call.name === 'add_transaction') {
-          const tx: Transaction = {
-            id: crypto.randomUUID(),
-            date: new Date().toISOString(),
-            type: (args.type.includes('inc') || args.type.includes('rec')) ? 'income' : 'expense',
-            description: args.description,
-            amount: Number(args.amount),
-            category: args.category || 'Geral',
-            entity: args.entity || 'Geral'
-          };
-          await db.saveTransaction(tx);
-          result = { success: true, id: tx.id, message: "Transação salva." };
-        }
-        else if (call.name === 'search_database') {
-          const hits = await db.searchGlobal(args.query, args.target);
-          result = { count: hits.length, top_results: hits.slice(0, 5) };
-        }
-      } catch (err: any) {
-        result = { error: err.message };
-      }
+      for (const call of calls) {
+        const args = call.args as any;
+        let result: any = { error: "Erro desconhecido" };
 
-      // Return result to model
-      response = await chat.sendMessage({
-        message: [{
+        try {
+          if (call.name === 'add_client') {
+            const client: Client = {
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              name: args.name,
+              cpf: args.cpf || '',
+              mobile: args.mobile || '',
+              email: args.email || ''
+            };
+            await db.saveClient(client);
+            result = { success: true, id: client.id, message: "Cliente salvo." };
+          } 
+          else if (call.name === 'add_transaction') {
+            const tx: Transaction = {
+              id: crypto.randomUUID(),
+              date: args.date || new Date().toISOString(),
+              type: (args.type.includes('inc') || args.type.includes('rec')) ? 'income' : 'expense',
+              description: args.description,
+              amount: Number(args.amount),
+              category: args.category || 'Geral',
+              entity: args.entity || 'Geral'
+            };
+            await db.saveTransaction(tx);
+            result = { success: true, id: tx.id, message: "Transação salva." };
+          }
+          else if (call.name === 'add_service_type') {
+            await db.addServiceType(args.serviceName);
+            result = { success: true, message: `Serviço '${args.serviceName}' cadastrado.` };
+          }
+          else if (call.name === 'search_database') {
+            const hits = await db.searchGlobal(args.query, args.target);
+            result = { count: hits.length, top_results: hits.slice(0, 5) };
+          }
+          else if (call.name === 'get_financial_metrics') {
+            const metrics = await db.getFinancialMetrics(args.startDate, args.endDate);
+            result = metrics;
+          }
+        } catch (err: any) {
+          result = { error: err.message };
+        }
+
+        functionResponses.push({
           functionResponse: {
             name: call.name,
             response: { result },
             id: call.id
           }
-        }]
+        });
+      }
+
+      // Send all tool outputs back to the model
+      response = await chat.sendMessage({
+        message: functionResponses
       });
     }
 
-    return response.text || "Comando processado.";
+    return response.text || "Comando processado com sucesso.";
 
   } catch (error: any) {
     console.error("AI Error:", error);

@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Client, Transaction, StickyNote, StoredFile, AppSettings, UserProfile } from '../types';
+import { Client, Transaction, StickyNote, StoredFile, AppSettings, UserProfile, User, AuditLog } from '../types';
 
 const DEFAULT_SETTINGS: AppSettings = {
   companyName: 'Nexus Enterprise',
@@ -15,7 +15,19 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const DEFAULT_PROFILE: UserProfile = { name: 'Admin', role: 'Gerente', avatarUrl: '' };
-const KEYS = { CLIENTS: 'n_clients', TX: 'n_tx', NOTES: 'n_notes', FILES: 'n_files', SET: 'n_set', PROF: 'n_prof' };
+const DEFAULT_ADMIN: User = { id: 'admin', name: 'Administrador', email: 'admin@nexus.com', role: 'Admin', createdAt: new Date().toISOString() };
+
+const KEYS = { 
+  CLIENTS: 'n_clients', 
+  TX: 'n_tx', 
+  NOTES: 'n_notes', 
+  FILES: 'n_files', 
+  SET: 'n_set', 
+  PROF: 'n_prof',
+  USERS: 'n_users',
+  LOGS: 'n_logs',
+  SESSION: 'n_session'
+};
 
 class DatabaseService {
   private supabase: SupabaseClient | null = null;
@@ -41,6 +53,101 @@ class DatabaseService {
   }
   private setLocal<T>(key: string, data: T) { localStorage.setItem(key, JSON.stringify(data)); }
 
+  // --- Auth & Session ---
+  getCurrentUser(): User | null {
+    try { return JSON.parse(sessionStorage.getItem(KEYS.SESSION) || 'null'); } catch { return null; }
+  }
+
+  async login(userId: string): Promise<boolean> {
+    const users = await this.getUsers();
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      sessionStorage.setItem(KEYS.SESSION, JSON.stringify(user));
+      await this.logAction('login', 'User', `Usuário ${user.name} entrou no sistema.`);
+      return true;
+    }
+    return false;
+  }
+
+  logout() {
+    sessionStorage.removeItem(KEYS.SESSION);
+  }
+
+  // --- Audit Logs ---
+  async logAction(action: AuditLog['action'], target: AuditLog['target'], details: string) {
+    const currentUser = this.getCurrentUser() || { id: 'sys', name: 'Sistema' };
+    const log: AuditLog = {
+      id: crypto.randomUUID(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      action,
+      target,
+      details,
+      timestamp: new Date().toISOString()
+    };
+
+    if (this.useSupabase) {
+      // Assuming 'logs' table exists, otherwise fallback to local
+      const { error } = await this.supabase!.from('logs').insert(log);
+      if (error) console.warn("Log Supabase failed, saving local"); // Fallback
+    }
+    
+    // Always keep a local copy for immediate display if needed, or if Supabase fails
+    const list = this.getLocal<AuditLog[]>(KEYS.LOGS, []);
+    list.unshift(log); // Prepend
+    this.setLocal(KEYS.LOGS, list.slice(0, 100)); // Keep last 100 locally
+  }
+
+  async getLogs(): Promise<AuditLog[]> {
+    if (this.useSupabase) {
+       const { data, error } = await this.supabase!.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
+       if (!error && data) return data;
+    }
+    return this.getLocal(KEYS.LOGS, []);
+  }
+
+  // --- User Management ---
+  async getUsers(): Promise<User[]> {
+    if (this.useSupabase) {
+      const { data, error } = await this.supabase!.from('users').select('*');
+      if (!error && data && data.length > 0) return data;
+      // If table empty or error, fallthrough to check default admin logic
+    }
+    
+    const localUsers = this.getLocal<User[]>(KEYS.USERS, []);
+    if (localUsers.length === 0) {
+      // Ensure at least admin exists
+      return [DEFAULT_ADMIN];
+    }
+    return localUsers;
+  }
+
+  async saveUser(user: User) {
+    if (this.useSupabase) {
+      const { error } = await this.supabase!.from('users').upsert(user);
+      if (error) throw new Error(error.message);
+    } else {
+      const list = await this.getUsers();
+      const idx = list.findIndex(u => u.id === user.id);
+      if (idx >= 0) list[idx] = user; else list.push(user);
+      this.setLocal(KEYS.USERS, list);
+    }
+    await this.logAction(user.createdAt === new Date().toISOString() ? 'create' : 'update', 'User', `Funcionário ${user.name} salvo/atualizado.`);
+  }
+
+  async deleteUser(id: string) {
+    if (id === 'admin') throw new Error("Não é possível excluir o Administrador principal.");
+    
+    if (this.useSupabase) {
+      const { error } = await this.supabase!.from('users').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+    } else {
+      const list = await this.getUsers();
+      this.setLocal(KEYS.USERS, list.filter(u => u.id !== id));
+    }
+    await this.logAction('delete', 'User', `Funcionário ID ${id} removido.`);
+  }
+
   // Settings
   getLocalSettings(): AppSettings {
     const s = this.getLocal<AppSettings>(KEYS.SET, DEFAULT_SETTINGS);
@@ -48,9 +155,34 @@ class DatabaseService {
     return s;
   }
   async getSettings() { return this.getLocalSettings(); }
-  async updateSettings(s: AppSettings) { this.setLocal(KEYS.SET, s); this.initSupabase(); }
+  async updateSettings(s: AppSettings) { 
+    this.setLocal(KEYS.SET, s); 
+    this.initSupabase(); 
+    await this.logAction('update', 'System', 'Configurações do sistema atualizadas.');
+  }
+  
+  async addServiceType(serviceName: string) {
+    const s = this.getLocalSettings();
+    if (!s.serviceTypes.find(st => st.toLowerCase() === serviceName.toLowerCase())) {
+      s.serviceTypes.push(serviceName);
+      await this.updateSettings(s);
+    }
+  }
+
   getUserProfile() { return this.getLocal(KEYS.PROF, DEFAULT_PROFILE); }
-  async saveUserProfile(p: UserProfile) { this.setLocal(KEYS.PROF, p); }
+  async saveUserProfile(p: UserProfile) { 
+    this.setLocal(KEYS.PROF, p);
+    // Update session user as well if applicable
+    const current = this.getCurrentUser();
+    if (current) {
+        current.name = p.name;
+        current.role = p.role;
+        current.avatarUrl = p.avatarUrl;
+        sessionStorage.setItem(KEYS.SESSION, JSON.stringify(current));
+        // Also update the User Record
+        await this.saveUser(current);
+    }
+  }
   isSupabaseConfigured() { return this.useSupabase; }
 
   // Realtime
@@ -74,6 +206,7 @@ class DatabaseService {
     return this.getLocal(KEYS.CLIENTS, []);
   }
   async saveClient(c: Client) {
+    const isNew = !c.id; // Logic check depends on context, assuming ID passed is new or existing
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(c);
       if (error) throw new Error(error.message);
@@ -83,12 +216,19 @@ class DatabaseService {
       if (idx >= 0) list[idx] = c; else list.push(c);
       this.setLocal(KEYS.CLIENTS, list);
     }
+    await this.logAction('update', 'Client', `Cliente ${c.name} ${isNew ? 'criado' : 'atualizado'}.`);
   }
   async bulkUpsertClients(cs: Client[]) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(cs);
       if (error) throw new Error(error.message);
+    } else {
+      const list = this.getLocal<Client[]>(KEYS.CLIENTS, []);
+      const map = new Map(list.map(c => [c.id, c]));
+      cs.forEach(c => map.set(c.id, c));
+      this.setLocal(KEYS.CLIENTS, Array.from(map.values()));
     }
+    await this.logAction('create', 'Client', `Importação em massa: ${cs.length} clientes.`);
   }
   async deleteClient(id: string) {
     if (this.useSupabase) {
@@ -97,6 +237,7 @@ class DatabaseService {
     } else {
       this.setLocal(KEYS.CLIENTS, this.getLocal<Client[]>(KEYS.CLIENTS, []).filter(x => x.id !== id));
     }
+    await this.logAction('delete', 'Client', `Cliente ID ${id} excluído.`);
   }
 
   // Transactions
@@ -113,7 +254,6 @@ class DatabaseService {
       const { error } = await this.supabase!.from('transactions').upsert(t);
       if (error) {
         console.error("Save Tx Error:", JSON.stringify(error));
-        // User friendly error for schema mismatch
         if (error.message && (error.message.includes('attachmentIds') || error.message.includes('schema'))) {
           throw new Error("Erro de Banco de Dados: Colunas faltando (attachmentIds). Vá em Configurações > Integrações e execute o SQL de atualização.");
         }
@@ -125,12 +265,19 @@ class DatabaseService {
       if (idx >= 0) list[idx] = t; else list.push(t);
       this.setLocal(KEYS.TX, list);
     }
+    await this.logAction('update', 'Transaction', `${t.type === 'income' ? 'Receita' : 'Despesa'} de R$ ${t.amount} registrada.`);
   }
   async bulkUpsertTransactions(ts: Transaction[]) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('transactions').upsert(ts);
       if (error) throw new Error(error.message);
+    } else {
+      const list = this.getLocal<Transaction[]>(KEYS.TX, []);
+      const map = new Map(list.map(t => [t.id, t]));
+      ts.forEach(t => map.set(t.id, t));
+      this.setLocal(KEYS.TX, Array.from(map.values()));
     }
+    await this.logAction('create', 'Transaction', `Importação em massa: ${ts.length} transações.`);
   }
   async deleteTransaction(id: string) {
     if (this.useSupabase) {
@@ -139,6 +286,7 @@ class DatabaseService {
     } else {
       this.setLocal(KEYS.TX, this.getLocal<Transaction[]>(KEYS.TX, []).filter(x => x.id !== id));
     }
+    await this.logAction('delete', 'Transaction', `Transação ID ${id} excluída.`);
   }
 
   // Notes & Files
@@ -193,9 +341,35 @@ class DatabaseService {
        list.unshift(f);
        this.setLocal(KEYS.FILES, list);
     }
+    await this.logAction('create', 'File', `Arquivo ${f.name} adicionado.`);
+  }
+  
+  async updateFile(f: StoredFile) {
+    if (this.useSupabase) {
+      const { error } = await this.supabase!.from('files').upsert(f);
+      if (error) throw new Error(error.message);
+    } else {
+      const list = this.getLocal<StoredFile[]>(KEYS.FILES, []);
+      const idx = list.findIndex(x => x.id === f.id);
+      if (idx >= 0) {
+        list[idx] = f;
+        this.setLocal(KEYS.FILES, list);
+      }
+    }
+    await this.logAction('update', 'File', `Arquivo ${f.name} atualizado.`);
   }
 
-  // Search
+  async deleteFile(id: string) {
+    if (this.useSupabase) {
+      const { error } = await this.supabase!.from('files').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+    } else {
+      this.setLocal(KEYS.FILES, this.getLocal<StoredFile[]>(KEYS.FILES, []).filter(x => x.id !== id));
+    }
+    await this.logAction('delete', 'File', `Arquivo ID ${id} excluído.`);
+  }
+
+  // Search & Analysis
   async searchGlobal(q: string, target: 'clients' | 'transactions') {
     const term = q.toLowerCase();
     if (target === 'clients') {
@@ -204,6 +378,24 @@ class DatabaseService {
     }
     const list = await this.getTransactions();
     return list.filter(t => t.description.toLowerCase().includes(term));
+  }
+
+  async getFinancialMetrics(startDate: string, endDate: string) {
+    const txs = await this.getTransactions();
+    // Filter
+    const filtered = txs.filter(t => t.date >= startDate && t.date <= endDate);
+    
+    const income = filtered.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+    const expense = filtered.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+    
+    return {
+      period: `${startDate} até ${endDate}`,
+      totalIncome: income,
+      totalExpense: expense,
+      balance: income - expense,
+      transactionCount: filtered.length,
+      details: filtered.slice(0, 10) // Limit details for token context
+    };
   }
 
   async getFullContext() {
