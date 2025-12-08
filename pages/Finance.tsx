@@ -222,7 +222,12 @@ export const Finance: React.FC = () => {
                  <td className="px-4 py-3">
                    <div className="font-medium text-slate-900 flex items-center gap-2">
                      {t.description}
-                     {t.attachmentIds?.length ? <Paperclip size={12} className="text-slate-400" /> : null}
+                     {t.attachmentIds && t.attachmentIds.length > 0 && (
+                       <div title={`${t.attachmentIds.length} anexo(s)`} className="bg-blue-50 p-1 rounded-md text-blue-600 border border-blue-100 flex items-center gap-1">
+                         <Paperclip size={12} strokeWidth={2.5} />
+                         <span className="text-[10px] font-bold leading-none">{t.attachmentIds.length}</span>
+                       </div>
+                     )}
                    </div>
                    <div className="text-xs text-slate-400">
                      {t.category} • {t.type === 'income' ? clients.find(c => c.id === t.clientId)?.name || 'Cliente N/D' : t.supplier}
