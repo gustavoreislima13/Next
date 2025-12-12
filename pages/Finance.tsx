@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2 } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 export const Finance: React.FC = () => {
@@ -15,14 +15,22 @@ export const Finance: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
-  const [filterClient, setFilterClient] = useState('all'); // Novo filtro
+  const [filterClient, setFilterClient] = useState('all'); 
   
+  // Filter Autocomplete State
+  const [filterClientSearch, setFilterClientSearch] = useState('');
+  const [showFilterClientDropdown, setShowFilterClientDropdown] = useState(false);
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [txType, setTxType] = useState<'income' | 'expense'>('income');
   const [isNewClientMode, setIsNewClientMode] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  // Modal Client Autocomplete State
+  const [formClientSearch, setFormClientSearch] = useState('');
+  const [showFormClientDropdown, setShowFormClientDropdown] = useState(false);
 
   // Delete Confirmation State
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; id: string | null }>({
@@ -62,9 +70,17 @@ export const Finance: React.FC = () => {
     if (!formData.description || !formData.amount) return;
 
     // Validate new client
-    if (txType === 'income' && isNewClientMode && !newClientData.name.trim()) {
-      alert("Por favor, informe o nome do cliente.");
-      return;
+    if (txType === 'income') {
+      if (isNewClientMode && !newClientData.name.trim()) {
+        alert("Por favor, informe o nome do cliente.");
+        return;
+      }
+      // If NOT new client mode, but user typed something and didn't select an ID (and field is not empty)
+      if (!isNewClientMode && !formData.clientId && formClientSearch.trim() !== '') {
+         // Optional: You could auto-select if exact match, but for now let's warn
+         // or allow "Avulso" (no ID) but keep the name in description?
+         // Let's assume strict selection for ID.
+      }
     }
 
     setLoading(true);
@@ -147,6 +163,11 @@ export const Finance: React.FC = () => {
   const initiateEdit = (t: Transaction) => {
     setEditingId(t.id);
     setTxType(t.type);
+    
+    // Find client name for autocomplete
+    const clientName = clients.find(c => c.id === t.clientId)?.name || '';
+    setFormClientSearch(clientName);
+
     setFormData({
       description: t.description,
       amount: t.amount,
@@ -159,7 +180,7 @@ export const Finance: React.FC = () => {
       consultant: t.consultant,
       supplier: t.supplier
     });
-    setIsNewClientMode(false); // Reset new client mode when editing
+    setIsNewClientMode(false); 
     setIsModalOpen(true);
   };
 
@@ -168,6 +189,7 @@ export const Finance: React.FC = () => {
     setEditingId(null);
     setIsNewClientMode(false);
     setAttachedFiles([]);
+    setFormClientSearch('');
     setNewClientData({ name: '', cpf: '', mobile: '', email: '' });
     setFormData({
       description: '', amount: 0, date: new Date().toISOString().split('T')[0],
@@ -202,6 +224,11 @@ export const Finance: React.FC = () => {
   });
 
   const balance = transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
+
+  // Helper for filter clients
+  const filteredClientsForSearch = (query: string) => {
+    return clients.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -239,10 +266,68 @@ export const Finance: React.FC = () => {
            <option value="all">Todas Categorias</option>
            {settings.categories.map(c => <option key={c} value={c}>{c}</option>)}
          </select>
-         <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={filterClient} onChange={e => setFilterClient(e.target.value)}>
-           <option value="all">Todos Clientes</option>
-           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-         </select>
+         
+         {/* Filter Client Autocomplete */}
+         <div className="relative min-w-[200px]">
+            <div className="relative">
+              <input 
+                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-blue-500 outline-none pr-8"
+                placeholder="Filtrar Cliente..."
+                value={filterClientSearch}
+                onFocus={() => setShowFilterClientDropdown(true)}
+                onChange={(e) => {
+                  setFilterClientSearch(e.target.value);
+                  if(e.target.value === '') setFilterClient('all');
+                  setShowFilterClientDropdown(true);
+                }}
+              />
+              {filterClient !== 'all' ? (
+                 <button 
+                  onClick={() => { setFilterClient('all'); setFilterClientSearch(''); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                 >
+                   <X size={14} />
+                 </button>
+              ) : (
+                 <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              )}
+            </div>
+            
+            {showFilterClientDropdown && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowFilterClientDropdown(false)} />
+                <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                  <button 
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-100 dark:border-slate-800"
+                    onClick={() => {
+                      setFilterClient('all');
+                      setFilterClientSearch('');
+                      setShowFilterClientDropdown(false);
+                    }}
+                  >
+                    Todos os Clientes
+                  </button>
+                  {filteredClientsForSearch(filterClientSearch).map(c => (
+                    <button
+                      key={c.id}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex justify-between items-center"
+                      onClick={() => {
+                        setFilterClient(c.id);
+                        setFilterClientSearch(c.name);
+                        setShowFilterClientDropdown(false);
+                      }}
+                    >
+                      {c.name}
+                      {filterClient === c.id && <Check size={14} className="text-blue-500" />}
+                    </button>
+                  ))}
+                  {filteredClientsForSearch(filterClientSearch).length === 0 && (
+                    <div className="px-3 py-2 text-sm text-slate-400">Nenhum cliente encontrado</div>
+                  )}
+                </div>
+              </>
+            )}
+         </div>
       </div>
 
       {/* List */}
@@ -354,10 +439,48 @@ export const Finance: React.FC = () => {
                    </div>
                    
                    {!isNewClientMode ? (
-                     <select className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value={formData.clientId || ''} onChange={e => setFormData({...formData, clientId: e.target.value})}>
-                       <option value="">Avulso / Nenhum</option>
-                       {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                     </select>
+                     <div className="relative">
+                        <input 
+                           className="w-full border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                           placeholder="Digite para buscar..."
+                           value={formClientSearch}
+                           onFocus={() => setShowFormClientDropdown(true)}
+                           onChange={(e) => {
+                             setFormClientSearch(e.target.value);
+                             setShowFormClientDropdown(true);
+                             // Clear ID if typed changed so user must re-select to be valid
+                             if (formData.clientId) setFormData({...formData, clientId: ''});
+                           }}
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {formData.clientId ? <Check size={16} className="text-emerald-500" /> : <Search size={16} className="text-slate-400" />}
+                        </div>
+                        
+                        {showFormClientDropdown && (
+                          <>
+                             <div className="fixed inset-0 z-10" onClick={() => setShowFormClientDropdown(false)} />
+                             <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
+                                {filteredClientsForSearch(formClientSearch).map(c => (
+                                  <button
+                                    type="button"
+                                    key={c.id}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-900 dark:text-slate-100 border-b border-slate-50 dark:border-slate-800 last:border-0"
+                                    onClick={() => {
+                                      setFormData({...formData, clientId: c.id});
+                                      setFormClientSearch(c.name);
+                                      setShowFormClientDropdown(false);
+                                    }}
+                                  >
+                                    {c.name}
+                                  </button>
+                                ))}
+                                {filteredClientsForSearch(formClientSearch).length === 0 && (
+                                  <div className="px-3 py-2 text-sm text-slate-400">Nenhum cliente encontrado.</div>
+                                )}
+                             </div>
+                          </>
+                        )}
+                     </div>
                    ) : (
                      <div className="space-y-2 animate-fade-in">
                         <input placeholder="Nome Completo *" className="w-full border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white" value={newClientData.name} onChange={e => setNewClientData({...newClientData, name: e.target.value})} />
