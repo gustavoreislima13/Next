@@ -18,6 +18,13 @@ const getAIClient = () => {
   const finalKey = dbKey || envKey || '';
   
   if (!finalKey) return null;
+
+  // SAFETY CHECK: Ensure key is a valid Browser API Key (starts with AIza)
+  // The SDK throws "Forbidden use of secret API key" if a Service Account key is used in browser.
+  if (!finalKey.startsWith('AIza')) {
+    console.warn("Nexus AI: Chave de API inválida detectada. Use uma chave do Google AI Studio (começa com AIza).");
+    return null;
+  }
   
   return new GoogleGenAI({ apiKey: finalKey });
 };
@@ -114,7 +121,7 @@ export interface AIRequestOptions {
 
 export const generateBusinessInsight = async (options: AIRequestOptions | string): Promise<string> => {
   const ai = getAIClient();
-  if (!ai) return "Erro: Chave de API não configurada. Vá em Configurações > Integrações.";
+  if (!ai) return "Erro: Chave de API inválida ou não configurada. Use uma API Key 'AIza...' do Google AI Studio.";
 
   const { prompt, image, audio, document, mimeType, mode = 'standard', responseMimeType } = typeof options === 'string' 
     ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode, responseMimeType: undefined } 
@@ -275,7 +282,7 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     }
 
     // Parsing error message for specific Critical Key issues
-    if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key')) {
+    if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key') || msg.includes('browser')) {
         return `CRITICAL_ERROR_LEAKED_KEY`;
     }
 

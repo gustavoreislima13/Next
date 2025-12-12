@@ -78,7 +78,7 @@ export const Finance: React.FC = () => {
     // Validate new client
     if (txType === 'income') {
       if (isNewClientMode && !newClientData.name.trim()) {
-        alert("Por favor, informe o nome do cliente.");
+        addToast("Por favor, informe o nome do cliente.", "info");
         return;
       }
     }
@@ -153,8 +153,7 @@ export const Finance: React.FC = () => {
       resetForm();
     } catch (err: any) {
       console.error(err);
-      // Show specific message if available (e.g., Missing Column)
-      alert(err.message || "Erro ao salvar.");
+      addToast(err.message || "Erro ao salvar transação.", 'error');
     } finally {
       setLoading(false);
     }
