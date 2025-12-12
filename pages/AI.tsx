@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { generateBusinessInsight, AIMode } from '../services/geminiService';
 import { db } from '../services/db';
 import { StoredFile, Client, Transaction } from '../types';
-import { Send, Bot, RefreshCw, Key, ArrowRight, Mic, Image as ImageIcon, X, Zap, Brain, Sparkles, StopCircle, Radio, MessageCircle, Paperclip, FileText, Database } from 'lucide-react';
+import { Send, Bot, RefreshCw, Key, ArrowRight, Mic, Image as ImageIcon, X, Zap, Brain, Sparkles, StopCircle, Radio, MessageCircle, Paperclip, FileText, Database, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const AI: React.FC = () => {
@@ -376,7 +376,7 @@ export const AI: React.FC = () => {
            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg flex gap-3 text-amber-900 dark:text-amber-200 text-sm">
              <Key className="shrink-0" />
              <div>
-               Configure sua chave API em <Link to="/config" className="underline font-bold">Configurações</Link>.
+               Configure sua chave API em <Link to="/config?tab=api" className="underline font-bold">Configurações</Link>.
              </div>
            </div>
         )}
@@ -389,7 +389,37 @@ export const AI: React.FC = () => {
                 ? 'bg-blue-600 text-white rounded-br-none' 
                 : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-bl-none text-slate-700 dark:text-slate-200'}
             `}>
-              <div dangerouslySetInnerHTML={{ __html: m.text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br/>') }} />
+              {m.role === 'ai' && (m.text.includes('CRITICAL_ERROR_LEAKED_KEY') || m.text.includes('PERMISSION_DENIED')) ? (
+                  <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2 font-bold text-rose-600 dark:text-rose-400 border-b border-rose-100 dark:border-rose-900 pb-2">
+                          <AlertTriangle size={20} />
+                          Chave de API Bloqueada/Vazada
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300">
+                          O Google detectou que sua chave de API foi exposta publicamente e a bloqueou por segurança. Esta chave não funcionará mais.
+                      </p>
+                      <div className="bg-rose-50 dark:bg-rose-900/20 p-3 rounded-lg border border-rose-100 dark:border-rose-800 space-y-2">
+                          <p className="font-bold text-rose-800 dark:text-rose-300 text-xs uppercase">Ação Necessária</p>
+                          <a 
+                             href="https://aistudio.google.com/app/apikey" 
+                             target="_blank" 
+                             rel="noreferrer"
+                             className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline font-bold"
+                          >
+                             <ExternalLink size={16} /> 1. Gerar Nova Chave (Google AI Studio)
+                          </a>
+                          <Link to="/config?tab=api" className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline font-bold">
+                             <Key size={16} /> 2. Atualizar nas Configurações
+                          </Link>
+                      </div>
+                      <p className="text-xs text-slate-400 italic">
+                          Dica: Se estiver usando o arquivo <code>.env</code>, atualize-o e reinicie o servidor com <code>npm run dev</code>.
+                      </p>
+                  </div>
+              ) : (
+                  <div dangerouslySetInnerHTML={{ __html: m.text.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br/>') }} />
+              )}
+              
               {m.role === 'ai' && <div className="absolute -bottom-5 left-0 text-[10px] text-slate-400">Nexus AI</div>}
             </div>
           </div>

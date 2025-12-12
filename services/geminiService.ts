@@ -113,7 +113,7 @@ export interface AIRequestOptions {
 
 export const generateBusinessInsight = async (options: AIRequestOptions | string): Promise<string> => {
   const ai = getAIClient();
-  if (!ai) return "Erro: Chave de API não configurada.";
+  if (!ai) return "Erro: Chave de API não configurada. Vá em Configurações > Integrações.";
 
   const { prompt, image, audio, document, mimeType, mode = 'standard', responseMimeType } = typeof options === 'string' 
     ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode, responseMimeType: undefined } 
@@ -261,6 +261,13 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
 
   } catch (error: any) {
     console.error("AI Error:", error);
-    return `Erro (${modelName}): ${error.message}`;
+    let msg = error.message || JSON.stringify(error) || "Erro desconhecido";
+    
+    // Parsing error message for API key issues
+    if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key')) {
+        return `CRITICAL_ERROR_LEAKED_KEY`;
+    }
+
+    return `Erro (${modelName}): ${msg}`;
   }
 };
