@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2 } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 export const Finance: React.FC = () => {
@@ -18,6 +18,7 @@ export const Finance: React.FC = () => {
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [txType, setTxType] = useState<'income' | 'expense'>('income');
   const [isNewClientMode, setIsNewClientMode] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
@@ -67,7 +68,8 @@ export const Finance: React.FC = () => {
 
     setLoading(true);
     try {
-      const txId = crypto.randomUUID();
+      // Use existing ID if editing, otherwise generate new
+      const txId = editingId || crypto.randomUUID();
       let clientId = formData.clientId;
 
       // 1. Create New Client if needed
@@ -85,7 +87,7 @@ export const Finance: React.FC = () => {
       }
 
       // 2. Upload Attachments (Simulated)
-      const attachmentIds: string[] = [];
+      const newAttachmentIds: string[] = [];
       if (attachedFiles.length > 0) {
         for (const f of attachedFiles) {
            const sf: StoredFile = {
@@ -98,7 +100,16 @@ export const Finance: React.FC = () => {
              associatedTransactionId: txId
            };
            await db.addFile(sf);
-           attachmentIds.push(sf.id);
+           newAttachmentIds.push(sf.id);
+        }
+      }
+
+      // Preserve existing attachments if editing
+      let finalAttachmentIds = newAttachmentIds;
+      if (editingId) {
+        const existingTx = transactions.find(t => t.id === editingId);
+        if (existingTx && existingTx.attachmentIds) {
+          finalAttachmentIds = [...existingTx.attachmentIds, ...newAttachmentIds];
         }
       }
 
@@ -112,7 +123,7 @@ export const Finance: React.FC = () => {
         entity: formData.entity || settings.entities[0] || 'Geral',
         category: formData.category || 'Outros',
         observation: formData.observation,
-        attachmentIds,
+        attachmentIds: finalAttachmentIds,
         clientId: txType === 'income' ? clientId : undefined,
         serviceType: txType === 'income' ? formData.serviceType : undefined,
         consultant: txType === 'income' ? formData.consultant : undefined,
@@ -120,7 +131,7 @@ export const Finance: React.FC = () => {
       };
 
       await db.saveTransaction(tx);
-      addToast(`${txType === 'income' ? 'Receita' : 'Despesa'} salva com sucesso!`, 'success');
+      addToast(`${txType === 'income' ? 'Receita' : 'Despesa'} ${editingId ? 'atualizada' : 'salva'} com sucesso!`, 'success');
       await refreshData();
       resetForm();
     } catch (err: any) {
@@ -132,8 +143,28 @@ export const Finance: React.FC = () => {
     }
   };
 
+  const initiateEdit = (t: Transaction) => {
+    setEditingId(t.id);
+    setTxType(t.type);
+    setFormData({
+      description: t.description,
+      amount: t.amount,
+      date: t.date,
+      entity: t.entity,
+      category: t.category,
+      observation: t.observation || '',
+      clientId: t.clientId,
+      serviceType: t.serviceType,
+      consultant: t.consultant,
+      supplier: t.supplier
+    });
+    setIsNewClientMode(false); // Reset new client mode when editing
+    setIsModalOpen(true);
+  };
+
   const resetForm = () => {
     setIsModalOpen(false);
+    setEditingId(null);
     setIsNewClientMode(false);
     setAttachedFiles([]);
     setNewClientData({ name: '', cpf: '', mobile: '', email: '' });
@@ -238,7 +269,14 @@ export const Finance: React.FC = () => {
                    {t.type === 'income' ? '+' : '-'} {t.amount.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                  </td>
                  <td className="px-4 py-3 text-right">
-                   <button onClick={() => initiateDelete(t.id)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"><Trash2 size={16} /></button>
+                   <div className="flex justify-end gap-2">
+                     <button onClick={() => initiateEdit(t)} className="text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700" title="Editar">
+                       <Edit2 size={16} />
+                     </button>
+                     <button onClick={() => initiateDelete(t.id)} className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700" title="Excluir">
+                       <Trash2 size={16} />
+                     </button>
+                   </div>
                  </td>
                </tr>
              ))}
@@ -252,7 +290,9 @@ export const Finance: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in border border-slate-200 dark:border-slate-800">
              <div className={`p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center ${txType === 'income' ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-rose-50 dark:bg-rose-900/20'}`}>
-               <h2 className={`font-bold ${txType === 'income' ? 'text-emerald-800 dark:text-emerald-400' : 'text-rose-800 dark:text-rose-400'}`}>{txType === 'income' ? 'Nova Receita' : 'Nova Despesa'}</h2>
+               <h2 className={`font-bold ${txType === 'income' ? 'text-emerald-800 dark:text-emerald-400' : 'text-rose-800 dark:text-rose-400'}`}>
+                 {editingId ? 'Editar' : 'Nova'} {txType === 'income' ? 'Receita' : 'Despesa'}
+               </h2>
                <button onClick={resetForm} className="text-2xl leading-none opacity-50 hover:opacity-100 dark:text-slate-300">&times;</button>
              </div>
              
@@ -295,9 +335,11 @@ export const Finance: React.FC = () => {
                  <div className="col-span-2 bg-slate-50 dark:bg-slate-800 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
                    <div className="flex justify-between items-center mb-2">
                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Cliente</label>
-                     <button type="button" onClick={() => setIsNewClientMode(!isNewClientMode)} className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
-                       {isNewClientMode ? 'Selecionar da Lista' : '+ Criar Novo'}
-                     </button>
+                     {!editingId && (
+                       <button type="button" onClick={() => setIsNewClientMode(!isNewClientMode)} className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline">
+                         {isNewClientMode ? 'Selecionar da Lista' : '+ Criar Novo'}
+                       </button>
+                     )}
                    </div>
                    
                    {!isNewClientMode ? (
@@ -327,6 +369,11 @@ export const Finance: React.FC = () => {
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-2"><Paperclip size={14}/> Anexos (Arquivos)</label>
                   <input type="file" multiple onChange={e => e.target.files && setAttachedFiles(Array.from(e.target.files))} className="block w-full text-sm text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-900/50 file:text-blue-700 dark:file:text-blue-400 hover:file:bg-blue-100 dark:hover:file:bg-blue-900/70"/>
                   {attachedFiles.length > 0 && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{attachedFiles.length} arquivos selecionados.</p>}
+                  {editingId && formData.attachmentIds && formData.attachmentIds.length > 0 && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
+                      + {formData.attachmentIds.length} anexo(s) já existente(s).
+                    </p>
+                  )}
                </div>
 
                <div className="col-span-2 pt-4 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
