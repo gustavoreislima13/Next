@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '../services/db';
 import { AppSettings, Client, Transaction, UserProfile, User, AuditLog } from '../types';
 import { generateBusinessInsight } from '../services/geminiService';
-import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2, FileType } from 'lucide-react';
+import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2, FileType, Terminal, XCircle, PlusCircle } from 'lucide-react';
+
+interface LogEntry {
+  id: string;
+  type: 'info' | 'success' | 'warning' | 'error' | 'new';
+  message: string;
+  timestamp: string;
+}
 
 export const Settings: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -20,8 +27,9 @@ export const Settings: React.FC = () => {
 
   // Import State
   const [isImporting, setIsImporting] = useState(false);
-  const [importLog, setImportLog] = useState('');
+  const [importLogs, setImportLogs] = useState<LogEntry[]>([]);
   const [importTxType, setImportTxType] = useState<'auto' | 'income' | 'expense'>('auto');
+  const logsEndRef = useRef<HTMLDivElement>(null);
   
   // PDF to CSV State
   const [isConverting, setIsConverting] = useState(false);
@@ -38,12 +46,30 @@ export const Settings: React.FC = () => {
      setCurrentUser(db.getCurrentUser());
   }, []);
 
+  useEffect(() => {
+    // Auto-scroll logs
+    if (logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [importLogs]);
+
   const loadTeamAndLogs = async () => {
     const users = await db.getUsers();
     setTeam(users);
     const activity = await db.getLogs();
     setLogs(activity);
   };
+
+  const addImportLog = (type: LogEntry['type'], message: string) => {
+    setImportLogs(prev => [...prev, {
+      id: crypto.randomUUID(),
+      type,
+      message,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
+  const clearImportLogs = () => setImportLogs([]);
 
   const handleSave = async () => {
     await db.updateSettings(settings);
@@ -124,7 +150,7 @@ export const Settings: React.FC = () => {
 
   const parseCSV = (text: string) => {
     const lines = text.split('\n').filter(l => l.trim());
-    if (lines.length < 2) return [];
+    if (lines.length < 2) return { rows: [], headers: [] };
     
     // Determine separator (comma or semicolon) based on first line
     const firstLine = lines[0];
@@ -134,7 +160,7 @@ export const Settings: React.FC = () => {
     const rawHeaders = firstLine.split(separator).map(h => h.trim().replace(/"/g, ''));
     const headers = rawHeaders.map(normalizeHeader);
     
-    return lines.slice(1).map(line => {
+    const rows = lines.slice(1).map(line => {
       // Regex to split by separator but ignore separators inside quotes
       const regex = new RegExp(`${separator}(?=(?:(?:[^"]*"){2})*[^"]*$)`);
       const values = line.split(regex);
@@ -199,11 +225,17 @@ export const Settings: React.FC = () => {
 
       return obj;
     });
+
+    return { rows, headers: rawHeaders };
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>, type: 'clients' | 'tx') => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    clearImportLogs();
+    setIsImporting(true);
+    addImportLog('info', `Iniciando leitura do arquivo: ${file.name}`);
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -211,89 +243,94 @@ export const Settings: React.FC = () => {
       if (!text) return;
       
       try {
-        const rows = parseCSV(text);
+        const { rows, headers } = parseCSV(text);
         if (rows.length === 0) {
-            alert("Arquivo vazio ou formato inválido.");
+            addImportLog('error', "Arquivo vazio ou formato inválido.");
+            setIsImporting(false);
             return;
         }
+
+        addImportLog('info', `Cabeçalhos detectados: ${headers.join(', ')}`);
+        addImportLog('info', `Processando ${rows.length} linhas...`);
 
         // --- Helpers for Formatting ---
         const parseCurrency = (val: string) => {
           if (!val) return 0;
           let clean = String(val).trim();
-          
-          // Handle parentheses for negative numbers (Accounting format)
           const isNegativeParenthesis = clean.startsWith('(') && clean.endsWith(')');
-          if (isNegativeParenthesis) {
-            clean = clean.replace(/[()]/g, '');
-          }
-
+          if (isNegativeParenthesis) clean = clean.replace(/[()]/g, '');
           clean = clean.replace(/[R$\s]/g, '');
           
-          // Logic to distinguish PT-BR (1.000,00) vs US (1,000.00) vs Plain (1000.00)
           const lastComma = clean.lastIndexOf(',');
           const lastDot = clean.lastIndexOf('.');
 
-          if (lastComma > lastDot) {
-            // Likely PT-BR: 1.200,50 or 1200,50
-            // Remove all dots, replace comma with dot
+          if (lastComma > lastDot) { // PT-BR
             clean = clean.replace(/\./g, '').replace(',', '.');
-          } else if (lastDot > lastComma) {
-            // Likely US: 1,200.50 or 1200.50
-            // Remove all commas
+          } else if (lastDot > lastComma) { // US
             clean = clean.replace(/,/g, '');
           }
-          
           let num = parseFloat(clean);
           if (isNaN(num)) return 0;
-          
           if (isNegativeParenthesis) num = -Math.abs(num);
-          
           return num;
         };
 
         const parseDate = (val: string) => {
           if (!val) return new Date().toISOString();
-          // Handle DD/MM/YYYY
           if (val.includes('/')) {
             const parts = val.split('/');
             if (parts.length === 3) {
-               // Check if year is first or last. Assume DD/MM/YYYY if year > 31 is last
-               if (parseInt(parts[2]) > 1900) {
-                 return `${parts[2]}-${parts[1]}-${parts[0]}`;
-               } else if (parseInt(parts[0]) > 1900) {
-                 return `${parts[0]}-${parts[1]}-${parts[2]}`;
-               }
+               if (parseInt(parts[2]) > 1900) return `${parts[2]}-${parts[1]}-${parts[0]}`; // DD/MM/YYYY
+               else if (parseInt(parts[0]) > 1900) return `${parts[0]}-${parts[1]}-${parts[2]}`; // YYYY/MM/DD
             }
           }
-          // Try standard date parse
           const d = new Date(val);
           return !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
         };
         // ------------------------------
         
         if (type === 'clients') {
-            const clients: Client[] = rows.map((r: any) => ({
-                id: crypto.randomUUID(),
-                name: r.mapped_name || r.name || r.Nome || 'Sem Nome',
-                cpf: r.mapped_cpf || r.cpf || '',
-                mobile: r.mapped_mobile || r.mobile || '',
-                email: r.mapped_email || r.email || '',
-                createdAt: new Date().toISOString()
-            }));
+            const clients: Client[] = rows.map((r: any, idx): Client | null => {
+                const name = r.mapped_name || r.name || r.Nome || 'Sem Nome';
+                const cpf = r.mapped_cpf || r.cpf || '';
+                
+                if (name === 'Sem Nome' && !cpf) {
+                    addImportLog('warning', `Linha ${idx + 2}: Ignorada (sem nome ou CPF).`);
+                    return null;
+                } else {
+                    addImportLog('success', `[OK] Cliente: ${name} (${cpf})`);
+                }
 
-            const validClients = clients.filter(c => c.name !== 'Sem Nome' || c.cpf);
-            await db.bulkUpsertClients(validClients);
-            alert(`${validClients.length} clientes importados com sucesso!`);
+                return {
+                    id: crypto.randomUUID(),
+                    name,
+                    cpf,
+                    mobile: r.mapped_mobile || r.mobile || '',
+                    email: r.mapped_email || r.email || '',
+                    createdAt: new Date().toISOString()
+                };
+            }).filter((c): c is Client => c !== null);
+
+            if (clients.length > 0) {
+                await db.bulkUpsertClients(clients);
+                addImportLog('success', `✅ Importação Concluída: ${clients.length} clientes salvos.`);
+            } else {
+                addImportLog('warning', `Nenhum cliente válido encontrado.`);
+            }
+
         } else {
-             // Track new Categories and Entities to auto-register them
+             // Track new Categories and Entities
              const newCategories = new Set<string>();
              const newEntities = new Set<string>();
+             const validTxs: Transaction[] = [];
 
-             const txs: Transaction[] = rows.map((r: any) => {
+             rows.forEach((r: any, idx) => {
                 const amount = parseCurrency(r.mapped_amount || r.amount || '0');
+                if (amount === 0) {
+                    addImportLog('warning', `Linha ${idx+2}: Ignorada (Valor zerado ou inválido).`);
+                    return;
+                }
                 
-                // Auto-detect type
                 let txType: 'income' | 'expense' = 'income';
                 if (r.force_expense) txType = 'expense';
                 else if (r.force_income) txType = 'income';
@@ -301,66 +338,61 @@ export const Settings: React.FC = () => {
                 else if (importTxType === 'income') txType = 'income';
                 else if (importTxType === 'expense') txType = 'expense';
                 
-                // Fields
                 const desc = r.mapped_desc || r.description || 'Importado via CSV';
-                const code = r.mapped_code ? `[Cód: ${r.mapped_code}] ` : '';
-                
-                // Combine extras into observation or prepend to description
-                const fullDesc = `${code}${desc}`.trim();
-                const account = r.mapped_account ? `Conta: ${r.mapped_account}` : '';
-                const obs = `${account} ${r.observation || ''}`.trim();
-
                 const category = r.mapped_category || r.Categoria || 'Outros';
                 const entity = r.mapped_entity || r.Entidade || settings.entities[0] || 'Geral';
 
-                if (category && category !== 'Outros') newCategories.add(category);
-                if (entity && entity !== 'Geral') newEntities.add(entity);
+                // Check for new registers
+                if (category && category !== 'Outros' && !settings.categories.includes(category) && !newCategories.has(category)) {
+                    newCategories.add(category);
+                    addImportLog('new', `[NOVO] Categoria identificada: "${category}" - Será criada.`);
+                }
 
-                return {
+                if (entity && entity !== 'Geral' && !settings.entities.includes(entity) && !newEntities.has(entity)) {
+                    newEntities.add(entity);
+                    addImportLog('new', `[NOVO] Entidade/Empresa identificada: "${entity}" - Será criada.`);
+                }
+
+                addImportLog('success', `[OK] ${txType === 'income' ? 'Receita' : 'Despesa'}: ${desc} | R$ ${Math.abs(amount).toFixed(2)}`);
+
+                validTxs.push({
                   id: crypto.randomUUID(),
                   type: txType,
-                  description: fullDesc,
-                  amount: Math.abs(amount), // Store as positive, type determines sign
+                  description: desc,
+                  amount: Math.abs(amount),
                   date: parseDate(r.mapped_date || r.date),
                   entity: entity,
                   category: category,
-                  observation: obs,
+                  observation: r.mapped_account ? `Conta: ${r.mapped_account} ${r.observation||''}` : r.observation || '',
                   clientId: r.clientId,
                   serviceType: r.serviceType,
                   consultant: r.consultant,
                   supplier: r.supplier
-                };
+                });
             });
 
-            // Auto-Register Logic
-            let settingsUpdated = false;
-            const updatedSettings = { ...settings };
-
-            newCategories.forEach(cat => {
-              if (!updatedSettings.categories.includes(cat)) {
-                updatedSettings.categories.push(cat);
-                settingsUpdated = true;
-              }
-            });
-
-            newEntities.forEach(ent => {
-              if (!updatedSettings.entities.includes(ent)) {
-                updatedSettings.entities.push(ent);
-                settingsUpdated = true;
-              }
-            });
-
-            if (settingsUpdated) {
+            // Update Settings with new cats/entities
+            if (newCategories.size > 0 || newEntities.size > 0) {
+              const updatedSettings = { ...settings };
+              newCategories.forEach(c => updatedSettings.categories.push(c));
+              newEntities.forEach(e => updatedSettings.entities.push(e));
               await db.updateSettings(updatedSettings);
               setSettings(updatedSettings);
+              addImportLog('info', `⚙️ Configurações atualizadas com ${newCategories.size} novas categorias e ${newEntities.size} novas entidades.`);
             }
 
-            await db.bulkUpsertTransactions(txs);
-            alert(`${txs.length} transações importadas! ${settingsUpdated ? 'Novas categorias/entidades foram cadastradas automaticamente.' : ''}`);
+            if (validTxs.length > 0) {
+                await db.bulkUpsertTransactions(validTxs);
+                addImportLog('success', `✅ Importação Concluída: ${validTxs.length} transações salvas.`);
+            } else {
+                addImportLog('error', `Nenhuma transação válida encontrada.`);
+            }
         }
         e.target.value = '';
       } catch (error: any) {
-        alert('Erro ao importar CSV: ' + error.message);
+        addImportLog('error', `Erro crítico: ${error.message}`);
+      } finally {
+        setIsImporting(false);
       }
     };
     reader.readAsText(file);
@@ -429,14 +461,15 @@ export const Settings: React.FC = () => {
       return;
     }
 
+    clearImportLogs();
     setIsImporting(true);
-    setImportLog('Lendo arquivo PDF em modo de ALTA CAPACIDADE (Batch Processing)...');
+    addImportLog('info', 'Lendo arquivo PDF em modo de ALTA CAPACIDADE (Batch Processing)...');
 
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
         const base64 = (ev.target?.result as string).split(',')[1];
-        setImportLog('Extraindo dados estruturados do documento... Aguarde...');
+        addImportLog('info', 'Enviando para I.A. Nexus para extração estruturada...');
         
         let txInstruction = '';
         if (importTxType === 'income') {
@@ -495,6 +528,8 @@ export const Settings: React.FC = () => {
           responseMimeType: 'application/json' // Force strictly valid JSON output
         });
 
+        addImportLog('info', 'Resposta recebida. Processando JSON...');
+
         // --- ROBUST BACKTRACKING PARSER ---
         let data: any = {};
         let parseSuccess = false;
@@ -507,24 +542,19 @@ export const Settings: React.FC = () => {
                 data = JSON.parse(repaired);
                 parseSuccess = true;
                 if (i > 0) {
-                     setImportLog(prev => prev + `\n⚠️ JSON recuperado após ${i} tentativa(s) de corte de dados corrompidos.`);
+                     addImportLog('warning', `JSON recuperado após ${i} tentativa(s) de reparo.`);
                 }
                 break;
             } catch (e) {
-                // If it failed, try to cut off the last object/array closure to see if the previous part was valid
                 const lastClose = candidate.lastIndexOf('}');
-                if (lastClose === -1) break; // Can't backtrack further
-                
-                // Cut string excluding the last closing brace found to force a re-balance in next repair
+                if (lastClose === -1) break; 
                 candidate = candidate.substring(0, lastClose);
-                
-                // If the slice ends up too short, stop
                 if (candidate.length < 10) break;
             }
         }
         
         if (!parseSuccess) {
-             throw new Error("Não foi possível recuperar um JSON válido mesmo após várias tentativas de reparo. O arquivo pode ser muito complexo ou o modelo excedeu o limite de saída.");
+             throw new Error("Falha crítica no parsing do JSON retornado pela IA.");
         }
         // ------------------------------------
         
@@ -542,6 +572,7 @@ export const Settings: React.FC = () => {
                   mobile: c.mobile || '',
                   email: c.email || ''
                 });
+                addImportLog('success', `[PDF] Cliente Encontrado: ${c.name}`);
               }
           });
         }
@@ -551,40 +582,38 @@ export const Settings: React.FC = () => {
             if (t.description && t.amount) {
               const codeStr = t.code ? `[Cód: ${t.code}] ` : '';
               const accStr = t.account ? `Conta: ${t.account}` : '';
+              const amount = Number(t.amount);
               
               newTxs.push({
                 id: crypto.randomUUID(),
                 type: t.type === 'expense' ? 'expense' : 'income',
                 description: `${codeStr}${t.description}`.trim(),
-                amount: Number(t.amount),
+                amount: amount,
                 date: t.date || new Date().toISOString(),
                 entity: t.entity || 'Importado',
                 category: t.category || 'Geral',
                 observation: accStr
               });
+              addImportLog('success', `[PDF] Transação: ${t.description} | R$ ${amount}`);
             }
           });
         }
 
-        // Save to DB
-        let logMsg = "Processamento Concluído.\n";
         if (newClients.length > 0) {
           await db.bulkUpsertClients(newClients);
-          logMsg += `✅ ${newClients.length} Clientes cadastrados.\n`;
         }
         if (newTxs.length > 0) {
           await db.bulkUpsertTransactions(newTxs);
-          logMsg += `✅ ${newTxs.length} Transações registradas.\n`;
         }
 
         if (newClients.length === 0 && newTxs.length === 0) {
-          logMsg += "⚠️ Nenhum dado estruturado encontrado no formato esperado.";
+          addImportLog('error', "Nenhum dado estruturado encontrado no PDF.");
+        } else {
+            addImportLog('success', `✅ Processamento Finalizado: ${newClients.length} clientes e ${newTxs.length} transações importadas.`);
         }
 
-        setImportLog(prev => prev + "\n" + logMsg);
-
       } catch (error: any) {
-        setImportLog(`Erro Crítico na Importação: ${error.message}`);
+        addImportLog('error', `Erro Crítico na Importação: ${error.message}`);
         console.error(error);
       } finally {
         setIsImporting(false);
@@ -602,7 +631,10 @@ export const Settings: React.FC = () => {
       return;
     }
 
+    clearImportLogs();
     setIsConverting(true);
+    addImportLog('info', "Iniciando conversão PDF -> CSV...");
+
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
@@ -634,6 +666,7 @@ export const Settings: React.FC = () => {
 
         // Clean markdown
         const cleanCsv = responseText.replace(/```csv/g, '').replace(/```/g, '').trim();
+        addImportLog('success', "CSV gerado pela IA.");
 
         // 1. Create blob and download (Keep existing feature)
         const blob = new Blob([cleanCsv], { type: 'text/csv;charset=utf-8;' });
@@ -641,6 +674,7 @@ export const Settings: React.FC = () => {
         link.href = URL.createObjectURL(blob);
         link.download = `convertido_${file.name.replace('.pdf', '')}.csv`;
         link.click();
+        addImportLog('info', "Download do CSV iniciado.");
 
         // 2. Auto-Import Logic (New Request)
         const lines = cleanCsv.split('\n').filter(l => l.trim());
@@ -691,22 +725,23 @@ export const Settings: React.FC = () => {
                              entity: entity,
                              observation: account ? `Conta: ${account}` : ''
                          });
+                         addImportLog('success', `[CSV-AUTO] Transação: ${description} | R$ ${Math.abs(amount)}`);
                      }
                  }
              });
 
              if (newTxs.length > 0) {
                  await db.bulkUpsertTransactions(newTxs);
-                 alert(`Conversão concluída!\n\n⬇️ CSV baixado.\n✅ ${newTxs.length} transações foram importadas automaticamente para o sistema.`);
+                 addImportLog('success', `✅ Conversão e Importação concluídas! ${newTxs.length} registros salvos.`);
              } else {
-                 alert("Conversão concluída e baixada, mas nenhum dado válido foi encontrado para importação automática.");
+                 addImportLog('warning', "CSV gerado, mas nenhum registro válido para importação automática.");
              }
         } else {
-            alert("CSV gerado parece vazio. Download iniciado para verificação.");
+            addImportLog('error', "CSV vazio ou inválido.");
         }
 
       } catch (err: any) {
-        alert("Erro na conversão: " + err.message);
+        addImportLog('error', `Erro na conversão: ${err.message}`);
       } finally {
         setIsConverting(false);
         // Reset input
@@ -751,6 +786,7 @@ export const Settings: React.FC = () => {
           </div>
         )}
 
+        {/* ... (Existing Profile and Team tabs omitted for brevity, no changes there) ... */}
         {activeTab === 'profile' && (
           <div className="max-w-xl">
              <div className="flex items-center gap-6 mb-8">
@@ -1025,18 +1061,42 @@ export const Settings: React.FC = () => {
                          />
                       </label>
                     </div>
-                    
-                    {importLog && (
-                      <div className="flex-1 w-full">
-                        <label className="text-xs font-bold text-purple-900 dark:text-purple-300 uppercase mb-1 block">Log de Importação</label>
-                        <div className="bg-slate-900 dark:bg-slate-950 text-emerald-400 font-mono text-xs p-4 rounded-lg h-40 overflow-y-auto whitespace-pre-wrap border border-slate-800">
-                          {importLog}
-                        </div>
-                      </div>
-                    )}
                   </div>
                </div>
              </div>
+
+             {/* Real-time Import Log */}
+             {importLogs.length > 0 && (
+                <div className="mt-6 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-lg animate-fade-in">
+                  <div className="bg-slate-800 dark:bg-slate-950 p-3 flex justify-between items-center border-b border-slate-700">
+                    <div className="flex items-center gap-2 text-slate-300 font-mono text-sm">
+                      <Terminal size={16} />
+                      <span className="font-bold">Console de Importação</span>
+                    </div>
+                    <button onClick={clearImportLogs} className="text-xs text-slate-400 hover:text-white flex items-center gap-1 bg-slate-700 px-2 py-1 rounded">
+                      <XCircle size={12} /> Limpar
+                    </button>
+                  </div>
+                  <div className="bg-slate-900 dark:bg-black h-80 overflow-y-auto p-4 space-y-2 font-mono text-xs md:text-sm custom-scrollbar relative">
+                     {importLogs.map((log) => (
+                       <div key={log.id} className="flex gap-2">
+                         <span className="text-slate-600 shrink-0 select-none">[{log.timestamp}]</span>
+                         <span className={`
+                           ${log.type === 'info' ? 'text-blue-400' : ''}
+                           ${log.type === 'success' ? 'text-emerald-400' : ''}
+                           ${log.type === 'warning' ? 'text-amber-400' : ''}
+                           ${log.type === 'error' ? 'text-rose-500 font-bold' : ''}
+                           ${log.type === 'new' ? 'text-purple-400 font-bold' : ''}
+                         `}>
+                           {log.type === 'new' && <span className="mr-2 inline-block bg-purple-900/50 px-1 rounded text-[10px] border border-purple-700">NEW</span>}
+                           {log.message}
+                         </span>
+                       </div>
+                     ))}
+                     <div ref={logsEndRef} />
+                  </div>
+                </div>
+             )}
            </div>
         )}
 
