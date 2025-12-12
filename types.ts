@@ -5,6 +5,9 @@ export interface Client {
   mobile: string;
   email: string;
   createdAt: string;
+  // Campos de Triagem
+  status?: 'Lead' | 'Em Negociação' | 'Fechado' | 'Perdido';
+  triageNotes?: string;
 }
 
 export type TransactionType = 'income' | 'expense';
