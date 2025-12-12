@@ -15,6 +15,7 @@ export const Finance: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filterClient, setFilterClient] = useState('all'); // Novo filtro
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -191,7 +192,13 @@ export const Finance: React.FC = () => {
     const s = searchTerm.toLowerCase();
     const matchesSearch = t.description.toLowerCase().includes(s) || 
                           (t.type === 'income' && clients.find(c => c.id === t.clientId)?.name.toLowerCase().includes(s));
-    return matchesSearch && (filterType === 'all' || t.type === filterType) && (filterCategory === 'all' || t.category === filterCategory);
+    
+    // Check all filters
+    const matchesType = filterType === 'all' || t.type === filterType;
+    const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
+    const matchesClient = filterClient === 'all' || t.clientId === filterClient;
+
+    return matchesSearch && matchesType && matchesCategory && matchesClient;
   });
 
   const balance = transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
@@ -231,6 +238,10 @@ export const Finance: React.FC = () => {
          <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
            <option value="all">Todas Categorias</option>
            {settings.categories.map(c => <option key={c} value={c}>{c}</option>)}
+         </select>
+         <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={filterClient} onChange={e => setFilterClient(e.target.value)}>
+           <option value="all">Todos Clientes</option>
+           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
          </select>
       </div>
 
