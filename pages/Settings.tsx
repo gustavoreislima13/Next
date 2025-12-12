@@ -1057,8 +1057,34 @@ export const Settings: React.FC = () => {
                <div className="mt-6">
                  <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300 mb-2">Configuração do Banco de Dados (SQL)</p>
                  <div className="bg-slate-800 dark:bg-slate-950 text-slate-300 p-4 rounded-lg text-xs font-mono overflow-auto h-48 border border-slate-700">
-<pre>{`-- Execute no Supabase para criar/atualizar as tabelas
+<pre>{`-- Copie e cole todo este bloco no Editor SQL do Supabase para corrigir o banco de dados.
 
+-- 1. Garante que a tabela de Clientes existe
+CREATE TABLE IF NOT EXISTS clients (
+  id text PRIMARY KEY,
+  name text,
+  cpf text,
+  mobile text,
+  email text,
+  "createdAt" text
+);
+
+-- 2. Adiciona colunas novas (CRM) automaticamente se não existirem
+DO $$
+BEGIN
+    ALTER TABLE clients ADD COLUMN status text;
+EXCEPTION
+    WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+    ALTER TABLE clients ADD COLUMN "triageNotes" text;
+EXCEPTION
+    WHEN duplicate_column THEN NULL;
+END $$;
+
+-- 3. Garante outras tabelas essenciais
 CREATE TABLE IF NOT EXISTS users (
   id text PRIMARY KEY,
   name text,
@@ -1068,19 +1094,40 @@ CREATE TABLE IF NOT EXISTS users (
   "createdAt" text
 );
 
-CREATE TABLE IF NOT EXISTS clients (
+CREATE TABLE IF NOT EXISTS transactions (
+  id text PRIMARY KEY,
+  type text,
+  description text,
+  amount numeric,
+  date text,
+  entity text,
+  category text,
+  observation text,
+  "clientId" text,
+  "serviceType" text,
+  consultant text,
+  supplier text,
+  "attachmentIds" text[]
+);
+
+CREATE TABLE IF NOT EXISTS files (
   id text PRIMARY KEY,
   name text,
-  cpf text,
-  mobile text,
-  email text,
-  "createdAt" text,
-  status text, -- Novo campo CRM
-  "triageNotes" text -- Novo campo CRM
+  type text,
+  size text,
+  date text,
+  "associatedClient" text,
+  "associatedTransactionId" text
 );
--- Se a tabela clients ja existe, execute:
--- ALTER TABLE clients ADD COLUMN IF NOT EXISTS status text;
--- ALTER TABLE clients ADD COLUMN IF NOT EXISTS "triageNotes" text;
+
+CREATE TABLE IF NOT EXISTS notes (
+  id text PRIMARY KEY,
+  title text,
+  content text,
+  color text,
+  x numeric,
+  y numeric
+);
 
 CREATE TABLE IF NOT EXISTS logs (
   id uuid PRIMARY KEY,
@@ -1092,14 +1139,30 @@ CREATE TABLE IF NOT EXISTS logs (
   timestamp text
 );
 
--- Policies
+-- 4. Habilita Políticas de Segurança (RLS) Públicas para teste
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Public Access" ON users;
-CREATE POLICY "Public Access" ON users FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Public Access Users" ON users;
+CREATE POLICY "Public Access Users" ON users FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Public Access" ON clients;
-CREATE POLICY "Public Access" ON clients FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Public Access Clients" ON clients;
+CREATE POLICY "Public Access Clients" ON clients FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Txs" ON transactions;
+CREATE POLICY "Public Access Txs" ON transactions FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Files" ON files;
+CREATE POLICY "Public Access Files" ON files FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Notes" ON notes;
+CREATE POLICY "Public Access Notes" ON notes FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Logs" ON logs;
+CREATE POLICY "Public Access Logs" ON logs FOR ALL USING (true) WITH CHECK (true);
 `}</pre>
                  </div>
                </div>
