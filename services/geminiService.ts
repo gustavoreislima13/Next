@@ -14,7 +14,7 @@ const getAIClient = () => {
 
   // Fallback to local settings or default
   const dbKey = db.getLocalSettings().geminiApiKey;
-  // Change: Prioritize dbKey (Settings) over envKey (.env) so user can override a leaked env key via UI
+  // Prioritize dbKey (Settings) over envKey (.env) so user can override a leaked env key via UI
   const finalKey = dbKey || envKey || '';
   
   if (!finalKey) return null;
@@ -120,7 +120,7 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode, responseMimeType: undefined } 
     : options;
 
-  // Model Selection
+  // Initial Model Selection
   let modelName = 'gemini-2.5-flash'; // Standard fallback
   let config: any = { temperature: 0.4, tools };
 
@@ -130,18 +130,14 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
 
   if (mode === 'fast') {
     modelName = 'gemini-flash-lite-latest'; // Fast
-    // Reduce temperature for stability in fast mode
     config.temperature = 0.2; 
   } else if (mode === 'thinking') {
     modelName = 'gemini-3-pro-preview';
     config = {
       tools,
-      // Increased output limit to allow large JSON responses for PDF extraction
       maxOutputTokens: 65536,
-      // Reduced thinking budget to leave room for large JSON output
       thinkingConfig: { thinkingBudget: 2048 } 
     };
-    // Re-apply responseMimeType if it was set, as we overwrote config object
     if (responseMimeType) {
       config.responseMimeType = responseMimeType;
     }
@@ -173,8 +169,9 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     config.systemInstruction = systemInstruction;
   }
 
-  try {
-    const chat = ai.chats.create({ model: modelName, config });
+  // Internal Execution Helper to allow retries
+  const executeAIRequest = async (targetModel: string, targetConfig: any) => {
+    const chat = ai.chats.create({ model: targetModel, config: targetConfig });
 
     const messageParts: any[] = [];
     if (image) messageParts.push({ inlineData: { mimeType: mimeType || 'image/jpeg', data: image } });
@@ -182,7 +179,7 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     if (document) messageParts.push({ inlineData: { mimeType: mimeType || 'application/pdf', data: document } });
     if (prompt) messageParts.push({ text: prompt });
     
-    if (messageParts.length === 0) return "Por favor, forneça texto, áudio, imagem ou documento.";
+    if (messageParts.length === 0) throw new Error("Por favor, forneça texto, áudio, imagem ou documento.");
 
     let response = await chat.sendMessage({ message: messageParts });
     
@@ -190,11 +187,7 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     let turns = 0;
     while (response.functionCalls && response.functionCalls.length > 0 && turns < 10) {
       turns++;
-      // Handle multiple function calls in parallel if the model supports it, 
-      // but here we iterate sequentially for safety.
       const calls = response.functionCalls;
-      
-      // We need to collect results to send back
       const functionResponses = [];
 
       for (const call of calls) {
@@ -252,19 +245,36 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
         });
       }
 
-      // Send all tool outputs back to the model
       response = await chat.sendMessage({
         message: functionResponses
       });
     }
 
     return response.text || "Comando processado com sucesso.";
+  };
 
+  try {
+    return await executeAIRequest(modelName, config);
   } catch (error: any) {
-    console.error("AI Error:", error);
+    console.error("AI Error (Primary Attempt):", error);
     let msg = error.message || JSON.stringify(error) || "Erro desconhecido";
     
-    // Parsing error message for API key issues
+    // Check for Quota/Rate Limit Errors (429)
+    const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+    
+    // Fallback Logic: If 3-pro fails with quota, try 2.5-flash
+    if (isQuotaError && modelName !== 'gemini-2.5-flash') {
+        console.warn(`Quota exceeded for ${modelName}. Falling back to gemini-2.5-flash.`);
+        try {
+            return await executeAIRequest('gemini-2.5-flash', config);
+        } catch (fallbackError: any) {
+            console.error("AI Error (Fallback Attempt):", fallbackError);
+            // If fallback also fails, return a quota error message
+            return `Erro de Cota: O limite de uso dos modelos foi atingido. Aguarde alguns instantes.`;
+        }
+    }
+
+    // Parsing error message for specific Critical Key issues
     if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key')) {
         return `CRITICAL_ERROR_LEAKED_KEY`;
     }
