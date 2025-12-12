@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown, Calendar } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 export const Finance: React.FC = () => {
@@ -16,6 +16,8 @@ export const Finance: React.FC = () => {
   const [filterType, setFilterType] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterClient, setFilterClient] = useState('all'); 
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   
   // Filter Autocomplete State
   const [filterClientSearch, setFilterClientSearch] = useState('');
@@ -74,12 +76,6 @@ export const Finance: React.FC = () => {
       if (isNewClientMode && !newClientData.name.trim()) {
         alert("Por favor, informe o nome do cliente.");
         return;
-      }
-      // If NOT new client mode, but user typed something and didn't select an ID (and field is not empty)
-      if (!isNewClientMode && !formData.clientId && formClientSearch.trim() !== '') {
-         // Optional: You could auto-select if exact match, but for now let's warn
-         // or allow "Avulso" (no ID) but keep the name in description?
-         // Let's assume strict selection for ID.
       }
     }
 
@@ -219,11 +215,15 @@ export const Finance: React.FC = () => {
     const matchesType = filterType === 'all' || t.type === filterType;
     const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
     const matchesClient = filterClient === 'all' || t.clientId === filterClient;
+    
+    // Check Date Range
+    const matchesStartDate = !filterStartDate || t.date >= filterStartDate;
+    const matchesEndDate = !filterEndDate || t.date <= filterEndDate;
 
-    return matchesSearch && matchesType && matchesCategory && matchesClient;
+    return matchesSearch && matchesType && matchesCategory && matchesClient && matchesStartDate && matchesEndDate;
   });
 
-  const balance = transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
+  const balance = filteredTxs.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
 
   // Helper for filter clients
   const filteredClientsForSearch = (query: string) => {
@@ -238,7 +238,7 @@ export const Finance: React.FC = () => {
              Financeiro {loading && <RefreshCw size={18} className="animate-spin text-slate-400" />}
            </h1>
            <p className={`font-mono font-medium text-lg ${balance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-             Saldo: R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+             Saldo (Filtrado): R$ {balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
            </p>
         </div>
         <div className="flex gap-2">
@@ -252,81 +252,107 @@ export const Finance: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-3">
-         <div className="relative flex-1">
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row gap-3">
+         <div className="relative flex-1 min-w-[200px]">
            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-           <input className="w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white" placeholder="Buscar..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+           <input className="w-full pl-9 pr-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white" placeholder="Buscar descrição..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
          </div>
-         <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={filterType} onChange={e => setFilterType(e.target.value)}>
-           <option value="all">Todos Tipos</option>
-           <option value="income">Receitas</option>
-           <option value="expense">Despesas</option>
-         </select>
-         <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-           <option value="all">Todas Categorias</option>
-           {settings.categories.map(c => <option key={c} value={c}>{c}</option>)}
-         </select>
          
-         {/* Filter Client Autocomplete */}
-         <div className="relative min-w-[200px]">
-            <div className="relative">
+         <div className="flex gap-2 flex-wrap">
+           <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2">
+              <span className="text-xs text-slate-400 font-medium whitespace-nowrap">Data:</span>
               <input 
-                className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-blue-500 outline-none pr-8"
-                placeholder="Filtrar Cliente..."
-                value={filterClientSearch}
-                onFocus={() => setShowFilterClientDropdown(true)}
-                onChange={(e) => {
-                  setFilterClientSearch(e.target.value);
-                  if(e.target.value === '') setFilterClient('all');
-                  setShowFilterClientDropdown(true);
-                }}
+                type="date" 
+                className="py-2 bg-transparent text-sm text-slate-900 dark:text-white outline-none w-28 lg:w-auto"
+                value={filterStartDate}
+                onChange={e => setFilterStartDate(e.target.value)}
+                title="Data Inicial"
               />
-              {filterClient !== 'all' ? (
-                 <button 
-                  onClick={() => { setFilterClient('all'); setFilterClientSearch(''); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                 >
-                   <X size={14} />
-                 </button>
-              ) : (
-                 <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <span className="text-slate-400">-</span>
+              <input 
+                type="date" 
+                className="py-2 bg-transparent text-sm text-slate-900 dark:text-white outline-none w-28 lg:w-auto"
+                value={filterEndDate}
+                onChange={e => setFilterEndDate(e.target.value)}
+                title="Data Final"
+              />
+              {(filterStartDate || filterEndDate) && (
+                <button onClick={() => {setFilterStartDate(''); setFilterEndDate('')}} className="text-slate-400 hover:text-rose-500"><X size={14} /></button>
               )}
-            </div>
-            
-            {showFilterClientDropdown && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowFilterClientDropdown(false)} />
-                <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
-                  <button 
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-100 dark:border-slate-800"
-                    onClick={() => {
-                      setFilterClient('all');
-                      setFilterClientSearch('');
-                      setShowFilterClientDropdown(false);
-                    }}
-                  >
-                    Todos os Clientes
-                  </button>
-                  {filteredClientsForSearch(filterClientSearch).map(c => (
-                    <button
-                      key={c.id}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex justify-between items-center"
+           </div>
+
+           <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none" value={filterType} onChange={e => setFilterType(e.target.value)}>
+             <option value="all">Todos Tipos</option>
+             <option value="income">Receitas</option>
+             <option value="expense">Despesas</option>
+           </select>
+           
+           <select className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none max-w-[150px]" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+             <option value="all">Todas Categorias</option>
+             {settings.categories.map(c => <option key={c} value={c}>{c}</option>)}
+           </select>
+           
+           {/* Filter Client Autocomplete */}
+           <div className="relative min-w-[200px] flex-1 xl:flex-none">
+              <div className="relative">
+                <input 
+                  className="w-full px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:border-blue-500 outline-none pr-8"
+                  placeholder="Filtrar Cliente..."
+                  value={filterClientSearch}
+                  onFocus={() => setShowFilterClientDropdown(true)}
+                  onChange={(e) => {
+                    setFilterClientSearch(e.target.value);
+                    if(e.target.value === '') setFilterClient('all');
+                    setShowFilterClientDropdown(true);
+                  }}
+                />
+                {filterClient !== 'all' ? (
+                   <button 
+                    onClick={() => { setFilterClient('all'); setFilterClientSearch(''); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                   >
+                     <X size={14} />
+                   </button>
+                ) : (
+                   <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                )}
+              </div>
+              
+              {showFilterClientDropdown && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowFilterClientDropdown(false)} />
+                  <div className="absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar right-0 min-w-[200px]">
+                    <button 
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-100 dark:border-slate-800"
                       onClick={() => {
-                        setFilterClient(c.id);
-                        setFilterClientSearch(c.name);
+                        setFilterClient('all');
+                        setFilterClientSearch('');
                         setShowFilterClientDropdown(false);
                       }}
                     >
-                      {c.name}
-                      {filterClient === c.id && <Check size={14} className="text-blue-500" />}
+                      Todos os Clientes
                     </button>
-                  ))}
-                  {filteredClientsForSearch(filterClientSearch).length === 0 && (
-                    <div className="px-3 py-2 text-sm text-slate-400">Nenhum cliente encontrado</div>
-                  )}
-                </div>
-              </>
-            )}
+                    {filteredClientsForSearch(filterClientSearch).map(c => (
+                      <button
+                        key={c.id}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex justify-between items-center"
+                        onClick={() => {
+                          setFilterClient(c.id);
+                          setFilterClientSearch(c.name);
+                          setShowFilterClientDropdown(false);
+                        }}
+                      >
+                        {c.name}
+                        {filterClient === c.id && <Check size={14} className="text-blue-500" />}
+                      </button>
+                    ))}
+                    {filteredClientsForSearch(filterClientSearch).length === 0 && (
+                      <div className="px-3 py-2 text-sm text-slate-400">Nenhum cliente encontrado</div>
+                    )}
+                  </div>
+                </>
+              )}
+           </div>
          </div>
       </div>
 
@@ -345,7 +371,7 @@ export const Finance: React.FC = () => {
            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
              {filteredTxs.map(t => (
                <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                 <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{new Date(t.date).toLocaleDateString()}</td>
+                 <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{new Date(t.date).toLocaleDateString()}</td>
                  <td className="px-4 py-3">
                    <div className="font-medium text-slate-900 dark:text-white flex items-center gap-2">
                      {t.description}
@@ -360,8 +386,8 @@ export const Finance: React.FC = () => {
                      {t.category} • {t.type === 'income' ? clients.find(c => c.id === t.clientId)?.name || 'Cliente N/D' : t.supplier}
                    </div>
                  </td>
-                 <td className="px-4 py-3"><span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs text-slate-600 dark:text-slate-300">{t.entity}</span></td>
-                 <td className={`px-4 py-3 font-bold ${t.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                 <td className="px-4 py-3"><span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{t.entity}</span></td>
+                 <td className={`px-4 py-3 font-bold whitespace-nowrap ${t.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                    {t.type === 'income' ? '+' : '-'} {t.amount.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                  </td>
                  <td className="px-4 py-3 text-right">
