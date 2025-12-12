@@ -197,16 +197,49 @@ class DatabaseService {
   }
 
   // Clients
-  async getClients(): Promise<Client[]> {
+  // UPDATED: Supports server-side pagination for 10k+ records
+  async getClients(page: number = 1, pageSize: number = 50, search: string = ''): Promise<{ data: Client[], count: number }> {
     if (this.useSupabase) {
-      const { data, error } = await this.supabase!.from('clients').select('*');
-      if (error) { console.error('Supabase getClients error:', JSON.stringify(error)); return []; }
-      return data || [];
+      let query = this.supabase!
+        .from('clients')
+        .select('*', { count: 'exact' }); // Get total count for pagination
+
+      if (search) {
+        // Search in multiple fields
+        query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,cpf.ilike.%${search}%,mobile.ilike.%${search}%`);
+      }
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // Ensure consistent ordering so new clients appear at the top if sorting by created date (or name)
+      const { data, error, count } = await query
+        .order('createdAt', { ascending: false }) // Newest first
+        .range(from, to);
+
+      if (error) { 
+        console.error('Supabase getClients error:', JSON.stringify(error)); 
+        return { data: [], count: 0 }; 
+      }
+      return { data: data || [], count: count || 0 };
     }
-    return this.getLocal(KEYS.CLIENTS, []);
+    
+    // Local Fallback (Simulation of pagination)
+    let all = this.getLocal<Client[]>(KEYS.CLIENTS, []);
+    if (search) {
+      const s = search.toLowerCase();
+      all = all.filter(c => c.name.toLowerCase().includes(s) || c.cpf.includes(s) || c.email.toLowerCase().includes(s));
+    }
+    // Sort locally by date descending
+    all.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    const start = (page - 1) * pageSize;
+    const paginated = all.slice(start, start + pageSize);
+    return { data: paginated, count: all.length };
   }
+
   async saveClient(c: Client) {
-    const isNew = !c.id; // Logic check depends on context, assuming ID passed is new or existing
+    const isNew = !c.id; 
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(c);
       if (error) {
@@ -257,7 +290,9 @@ class DatabaseService {
   // Transactions
   async getTransactions(): Promise<Transaction[]> {
     if (this.useSupabase) {
-      const { data, error } = await this.supabase!.from('transactions').select('*');
+      // NOTE: For very large transaction sets, this should also be paginated in future.
+      // Keeping it simple for now as requested focused on Clients.
+      const { data, error } = await this.supabase!.from('transactions').select('*').limit(2000); // Soft limit
       if (error) { console.error('Supabase getTransactions error:', JSON.stringify(error)); return []; }
       return (data || []).map(t => ({ ...t, amount: Number(t.amount) }));
     }
@@ -387,8 +422,9 @@ class DatabaseService {
   async searchGlobal(q: string, target: 'clients' | 'transactions') {
     const term = q.toLowerCase();
     if (target === 'clients') {
-      const list = await this.getClients();
-      return list.filter(c => c.name.toLowerCase().includes(term) || c.cpf.includes(term));
+      // Use efficient search for clients
+      const { data } = await this.getClients(1, 20, q);
+      return data;
     }
     const list = await this.getTransactions();
     return list.filter(t => t.description.toLowerCase().includes(term));
@@ -413,11 +449,12 @@ class DatabaseService {
   }
 
   async getFullContext() {
-    const clients = await this.getClients();
+    // Optimized context fetch: Only get count of clients, not full list
+    const { count: clientCount } = await this.getClients(1, 1);
     const txs = await this.getTransactions();
     return {
        summary: { 
-         totalClients: clients.length, 
+         totalClients: clientCount, 
          txCount: txs.length, 
          balance: txs.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0) 
        },

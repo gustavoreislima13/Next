@@ -56,9 +56,13 @@ export const Finance: React.FC = () => {
 
   const refreshData = async () => {
     if (transactions.length === 0) setLoading(true);
-    const [txs, cls, sett] = await Promise.all([db.getTransactions(), db.getClients(), db.getSettings()]);
+    const [txs, cls, sett] = await Promise.all([
+      db.getTransactions(), 
+      db.getClients(1, 1000), // Fetch up to 1000 clients for lookups
+      db.getSettings()
+    ]);
     setTransactions(txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-    setClients(cls);
+    setClients(cls.data);
     setSettings(sett);
     // Initialize entity default
     if (!formData.entity && sett.entities.length > 0) {

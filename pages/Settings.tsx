@@ -137,7 +137,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleExport = async (type: 'clients' | 'tx') => {
-    const data = type === 'clients' ? await db.getClients() : await db.getTransactions();
+    const data = type === 'clients' ? (await db.getClients(1, 10000)).data : await db.getTransactions();
     const blob = new Blob([arrayToCSV(data)], { type: 'text/csv' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);

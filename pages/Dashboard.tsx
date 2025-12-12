@@ -42,10 +42,10 @@ export const Dashboard: React.FC = () => {
     try {
       const [txs, cls] = await Promise.all([
         db.getTransactions(),
-        db.getClients()
+        db.getClients(1, 1000) // Fetch up to 1000 for dashboard overview
       ]);
       setTransactions(txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      setClients(cls);
+      setClients(cls.data);
     } catch (error) {
       console.error("Error fetching dashboard data", error);
     } finally {

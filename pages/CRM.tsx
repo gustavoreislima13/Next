@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Client, Transaction, StoredFile } from '../types';
-import { Search, Plus, Trash2, Edit2, Phone, Mail, Calendar, RefreshCw, AlertTriangle, FileText, Wallet, ClipboardList, ExternalLink, ArrowUpRight, FolderOpen, Save, X } from 'lucide-react';
+import { Search, Plus, Trash2, Edit2, Phone, Mail, Calendar, RefreshCw, AlertTriangle, FileText, Wallet, ClipboardList, ExternalLink, ArrowUpRight, FolderOpen, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 type Tab = 'details' | 'triage' | 'financial' | 'files';
@@ -10,8 +10,16 @@ export const CRM: React.FC = () => {
   const { addToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
-  const [search, setSearch] = useState('');
   
+  // Pagination & Search State
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalClients, setTotalClients] = useState(0);
+  const pageSize = 50; // Increased page size for better overview
+  
+  // Debounce ref
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Selection & Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('details');
@@ -36,22 +44,50 @@ export const CRM: React.FC = () => {
     name: '', cpf: '', mobile: '', email: '', status: 'Lead', triageNotes: ''
   });
 
+  // Initial load and Subscription
   useEffect(() => {
-    refreshClients();
-    const subscription = db.subscribe('clients', refreshClients);
+    refreshClients(1, '');
+    const subscription = db.subscribe('clients', () => refreshClients(currentPage, search));
     return () => {
       subscription?.unsubscribe();
     };
   }, []);
 
-  const refreshClients = async () => {
-    if (clients.length === 0) setLoading(true);
-    const data = await db.getClients();
-    setClients(data);
-    setLoading(false);
+  // Handle Search Input with Debounce
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    
+    searchTimeoutRef.current = setTimeout(() => {
+      setCurrentPage(1); // Reset to page 1 on search
+      refreshClients(1, val);
+    }, 500); // 500ms delay
+  };
+
+  // Handle Page Change
+  const changePage = (newPage: number) => {
+    if (newPage < 1 || newPage > Math.ceil(totalClients / pageSize)) return;
+    setCurrentPage(newPage);
+    refreshClients(newPage, search);
+  };
+
+  const refreshClients = async (page = currentPage, searchTerm = search) => {
+    setLoading(true);
+    try {
+      const { data, count } = await db.getClients(page, pageSize, searchTerm);
+      setClients(data);
+      setTotalClients(count);
+    } catch (e) {
+      console.error(e);
+      addToast('Erro ao carregar clientes', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadAssociatedData = async (clientId: string) => {
+    // Note: In a real app with 10k clients, transactions should also be paginated via API
+    // For now we keep filtering local transactions but optimized DB would use a join or where clause
     const [txs, files] = await Promise.all([db.getTransactions(), db.getFiles()]);
     setClientTransactions(txs.filter(t => t.clientId === clientId).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     setClientFiles(files.filter(f => f.associatedClient === clientId));
@@ -112,14 +148,17 @@ export const CRM: React.FC = () => {
 
       await db.saveClient(newClient);
       addToast(`Cliente ${editingClient ? 'atualizado' : 'cadastrado'} com sucesso!`, 'success');
-      refreshClients();
       
-      // Update editing context without closing if it was an edit or staying in modal
       if (editingClient) {
-          setEditingClient(newClient); 
+          // If editing, just update state loosely or refresh
+          setEditingClient(newClient);
+          refreshClients(currentPage, search);
       } else {
-          // If it was a new client, close modal
+          // If NEW client, reset search and jump to page 1 to ensure it appears at top
+          setSearch('');
+          setCurrentPage(1);
           closeModal();
+          refreshClients(1, ''); 
       }
     } catch (error: any) {
       console.error(error);
@@ -128,8 +167,12 @@ export const CRM: React.FC = () => {
       // Handle Partial Success (Recovered from schema error)
       if (msg === 'PARTIAL_SUCCESS_MISSING_COLUMNS') {
          addToast('Cliente salvo, mas os dados de triagem não foram persistidos pois o banco precisa ser atualizado (Configurações > Integrações).', 'info');
-         refreshClients();
-         if (!editingClient) closeModal();
+         if (!editingClient) {
+            setSearch('');
+            setCurrentPage(1);
+            refreshClients(1, '');
+            closeModal();
+         }
          return;
       }
 
@@ -151,7 +194,8 @@ export const CRM: React.FC = () => {
       await db.deleteClient(deleteConfirmation.id);
       addToast('Cliente excluído.', 'info');
       setDeleteConfirmation({ isOpen: false, id: null });
-      refreshClients();
+      // Refresh current page
+      refreshClients(currentPage, search);
     }
   };
 
@@ -177,16 +221,6 @@ export const CRM: React.FC = () => {
     window.open(url, '_blank');
   };
 
-  const filteredClients = clients.filter(c => {
-    const s = search.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(s) || 
-      c.cpf.includes(s) ||
-      c.email.toLowerCase().includes(s) ||
-      c.mobile.includes(s)
-    );
-  });
-
   const getStatusColor = (status?: string) => {
     switch(status) {
       case 'Fechado': return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400';
@@ -195,6 +229,8 @@ export const CRM: React.FC = () => {
       default: return 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300';
     }
   };
+
+  const totalPages = Math.ceil(totalClients / pageSize);
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
@@ -213,22 +249,25 @@ export const CRM: React.FC = () => {
       </div>
 
       {/* Search & Filters */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="relative">
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row justify-between gap-4 items-center">
+        <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input 
             type="text" 
             placeholder="Buscar por nome, CPF, email ou telefone..." 
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
+        </div>
+        <div className="text-sm text-slate-500 dark:text-slate-400 font-medium">
+           Total: {totalClients} cliente(s)
         </div>
       </div>
 
       {/* Clients Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredClients.map((client) => (
+        {clients.map((client) => (
           <div key={client.id} onClick={() => openModal(client)} className="group bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all cursor-pointer relative">
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
@@ -265,12 +304,35 @@ export const CRM: React.FC = () => {
           </div>
         ))}
 
-        {!loading && filteredClients.length === 0 && (
+        {!loading && clients.length === 0 && (
           <div className="col-span-full text-center py-12 text-slate-500 dark:text-slate-400">
             Nenhum cliente encontrado.
           </div>
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {totalClients > 0 && (
+        <div className="flex justify-center items-center gap-4 mt-6">
+           <button 
+             onClick={() => changePage(currentPage - 1)}
+             disabled={currentPage === 1}
+             className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors text-slate-600 dark:text-slate-400"
+           >
+             <ChevronLeft size={20} />
+           </button>
+           <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
+             Página {currentPage} de {totalPages || 1}
+           </span>
+           <button 
+             onClick={() => changePage(currentPage + 1)}
+             disabled={currentPage >= totalPages}
+             className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors text-slate-600 dark:text-slate-400"
+           >
+             <ChevronRight size={20} />
+           </button>
+        </div>
+      )}
 
       {/* Main Client Modal */}
       {isModalOpen && (

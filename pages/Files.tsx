@@ -28,11 +28,11 @@ export const Files: React.FC = () => {
   const loadData = async () => {
     const [f, c, t] = await Promise.all([
       db.getFiles(),
-      db.getClients(),
+      db.getClients(1, 1000), // Fetch more clients for lookups
       db.getTransactions()
     ]);
     setFiles(f);
-    setClients(c);
+    setClients(c.data);
     setTransactions(t);
   };
 
