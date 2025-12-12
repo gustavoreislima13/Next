@@ -124,6 +124,15 @@ export const CRM: React.FC = () => {
     } catch (error: any) {
       console.error(error);
       const msg = error.message || 'Erro desconhecido';
+      
+      // Handle Partial Success (Recovered from schema error)
+      if (msg === 'PARTIAL_SUCCESS_MISSING_COLUMNS') {
+         addToast('Cliente salvo, mas os dados de triagem não foram persistidos pois o banco precisa ser atualizado (Configurações > Integrações).', 'info');
+         refreshClients();
+         if (!editingClient) closeModal();
+         return;
+      }
+
       // Helpful hint for Supabase users
       if (msg.includes('status') || msg.includes('triageNotes')) {
          addToast('Erro de Banco de Dados: Colunas novas faltando. Vá em Configurações > Integrações e execute o SQL.', 'error');

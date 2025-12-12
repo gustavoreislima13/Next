@@ -209,7 +209,21 @@ class DatabaseService {
     const isNew = !c.id; // Logic check depends on context, assuming ID passed is new or existing
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(c);
-      if (error) throw new Error(error.message);
+      if (error) {
+        // Fallback for missing columns (e.g. status, triageNotes)
+        if (error.message?.includes('column') || error.message?.includes('status') || error.message?.includes('triageNotes')) {
+           console.warn("Schema mismatch detected. Retrying without new fields.");
+           // Create a copy without the new fields
+           const { status, triageNotes, ...legacy } = c;
+           const { error: retryError } = await this.supabase!.from('clients').upsert(legacy);
+           
+           if (retryError) throw new Error(retryError.message);
+           
+           // Throw specific error to inform UI about partial success
+           throw new Error("PARTIAL_SUCCESS_MISSING_COLUMNS");
+        }
+        throw new Error(error.message);
+      }
     } else {
       const list = this.getLocal<Client[]>(KEYS.CLIENTS, []);
       const idx = list.findIndex(x => x.id === c.id);
