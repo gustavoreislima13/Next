@@ -14,7 +14,8 @@ const getAIClient = () => {
 
   // Fallback to local settings or default
   const dbKey = db.getLocalSettings().geminiApiKey;
-  const finalKey = envKey || dbKey || '';
+  // Change: Prioritize dbKey (Settings) over envKey (.env) so user can override a leaked env key via UI
+  const finalKey = dbKey || envKey || '';
   
   if (!finalKey) return null;
   

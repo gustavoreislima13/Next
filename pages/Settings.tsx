@@ -26,6 +26,11 @@ export const Settings: React.FC = () => {
   // PDF to CSV State
   const [isConverting, setIsConverting] = useState(false);
 
+  // API Key Status
+  const hasEnvKey = (() => {
+    try { return !!process.env.API_KEY; } catch { return false; }
+  })();
+
   useEffect(() => {
      db.getSettings().then(setSettings);
      setIsSupabaseConnected(db.isSupabaseConfigured());
@@ -1048,6 +1053,22 @@ export const Settings: React.FC = () => {
                    onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} 
                    placeholder="Cole sua chave AIza..."
                  />
+               </div>
+               {/* Visual Indicator of Key Source */}
+               <div className="mt-2 text-xs flex items-center gap-2">
+                  {settings.geminiApiKey ? (
+                     <span className="text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1">
+                       <CheckCircle size={12} /> Usando chave personalizada (substitui ambiente)
+                     </span>
+                  ) : hasEnvKey ? (
+                     <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                       <CheckCircle size={12} /> Usando chave do ambiente (.env/System)
+                     </span>
+                  ) : (
+                     <span className="text-rose-500 font-medium flex items-center gap-1">
+                       <AlertCircle size={12} /> Nenhuma chave detectada
+                     </span>
+                  )}
                </div>
              </div>
 
