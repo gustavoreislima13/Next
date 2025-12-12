@@ -84,33 +84,52 @@ export const CRM: React.FC = () => {
     setEditingClient(null);
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name) return;
+  const safeId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
+  };
 
-    const newClient: Client = {
-      id: editingClient ? editingClient.id : crypto.randomUUID(),
-      createdAt: editingClient ? editingClient.createdAt : new Date().toISOString(),
-      name: formData.name,
-      cpf: formData.cpf || '',
-      mobile: formData.mobile || '',
-      email: formData.email || '',
-      status: formData.status as any || 'Lead',
-      triageNotes: formData.triageNotes || ''
-    };
+  const handleSave = async (e: React.FormEvent | React.MouseEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.name.trim()) {
+      addToast('Nome do cliente é obrigatório.', 'error');
+      return;
+    }
 
     try {
+      const id = editingClient ? editingClient.id : safeId();
+      
+      const newClient: Client = {
+        id,
+        createdAt: editingClient ? editingClient.createdAt : new Date().toISOString(),
+        name: formData.name,
+        cpf: formData.cpf || '',
+        mobile: formData.mobile || '',
+        email: formData.email || '',
+        status: (formData.status as any) || 'Lead',
+        triageNotes: formData.triageNotes || ''
+      };
+
       await db.saveClient(newClient);
-      addToast('Cliente salvo com sucesso!', 'success');
+      addToast(`Cliente ${editingClient ? 'atualizado' : 'cadastrado'} com sucesso!`, 'success');
       refreshClients();
-      // Don't close immediately if editing, just notify
+      
+      // Update editing context without closing if it was an edit or staying in modal
       if (editingClient) {
           setEditingClient(newClient); 
       } else {
+          // If it was a new client, close modal
           closeModal();
       }
-    } catch (error) {
-      addToast('Erro ao salvar cliente.', 'error');
+    } catch (error: any) {
+      console.error(error);
+      const msg = error.message || 'Erro desconhecido';
+      // Helpful hint for Supabase users
+      if (msg.includes('status') || msg.includes('triageNotes')) {
+         addToast('Erro de Banco de Dados: Colunas novas faltando. Vá em Configurações > Integrações e execute o SQL.', 'error');
+      } else {
+         addToast(`Erro ao salvar: ${msg}`, 'error');
+      }
     }
   };
 
@@ -169,7 +188,7 @@ export const CRM: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-10">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-2">
            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">CRM & Clientes</h1>
@@ -270,7 +289,7 @@ export const CRM: React.FC = () => {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b border-slate-100 dark:border-slate-800 px-6 bg-white dark:bg-slate-900">
+            <div className="flex border-b border-slate-100 dark:border-slate-800 px-6 bg-white dark:bg-slate-900 overflow-x-auto">
                {[
                  { id: 'details', label: 'Dados Cadastrais', icon: FileText },
                  { id: 'triage', label: 'Triagem & Agenda', icon: ClipboardList },
@@ -282,7 +301,7 @@ export const CRM: React.FC = () => {
                    onClick={() => setActiveTab(tab.id as Tab)}
                    disabled={!editingClient && tab.id !== 'details'}
                    className={`
-                     flex items-center gap-2 px-4 py-4 text-sm font-medium border-b-2 transition-colors
+                     flex items-center gap-2 px-4 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                      ${activeTab === tab.id 
                        ? 'border-blue-600 text-blue-600 dark:text-blue-400' 
                        : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}
@@ -303,28 +322,28 @@ export const CRM: React.FC = () => {
                 <form onSubmit={handleSave} className="space-y-6 max-w-2xl mx-auto">
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div className="col-span-2">
-                       <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nome Completo</label>
+                       <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nome Completo *</label>
                        <input required type="text" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                         value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                         value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Maria Silva" />
                      </div>
                      <div>
                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">CPF / CNPJ</label>
                        <input type="text" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                         value={formData.cpf} onChange={e => setFormData({...formData, cpf: e.target.value})} />
+                         value={formData.cpf || ''} onChange={e => setFormData({...formData, cpf: e.target.value})} />
                      </div>
                      <div>
                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Celular / WhatsApp</label>
                        <input type="text" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                         value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} />
+                         value={formData.mobile || ''} onChange={e => setFormData({...formData, mobile: e.target.value})} />
                      </div>
                      <div className="col-span-2">
                        <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">E-mail</label>
                        <input type="email" className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                         value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+                         value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} />
                      </div>
                    </div>
                    <div className="flex justify-end pt-4">
-                     <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2">
+                     <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 shadow-lg">
                        <Save size={18} /> Salvar Dados
                      </button>
                    </div>
@@ -355,7 +374,7 @@ export const CRM: React.FC = () => {
                         <textarea 
                            className="w-full h-40 px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                            placeholder="Registre aqui detalhes da negociação, interesses ou observações importantes..."
-                           value={formData.triageNotes}
+                           value={formData.triageNotes || ''}
                            onChange={e => setFormData({...formData, triageNotes: e.target.value})}
                         />
                      </div>
