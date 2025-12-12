@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { db } from '../services/db';
 import { AppSettings, Client, Transaction, UserProfile, User, AuditLog } from '../types';
 import { generateBusinessInsight } from '../services/geminiService';
-import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2 } from 'lucide-react';
+import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2, FileType } from 'lucide-react';
 
 export const Settings: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -22,6 +22,9 @@ export const Settings: React.FC = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [importLog, setImportLog] = useState('');
   const [importTxType, setImportTxType] = useState<'auto' | 'income' | 'expense'>('auto');
+  
+  // PDF to CSV State
+  const [isConverting, setIsConverting] = useState(false);
 
   useEffect(() => {
      db.getSettings().then(setSettings);
@@ -118,13 +121,18 @@ export const Settings: React.FC = () => {
     const lines = text.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
     
+    // Determine separator (comma or semicolon) based on first line
+    const firstLine = lines[0];
+    const separator = firstLine.includes(';') ? ';' : ',';
+
     // Parse Headers
-    const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const rawHeaders = firstLine.split(separator).map(h => h.trim().replace(/"/g, ''));
     const headers = rawHeaders.map(normalizeHeader);
     
     return lines.slice(1).map(line => {
-      // Regex to split by comma but ignore commas inside quotes
-      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      // Regex to split by separator but ignore separators inside quotes
+      const regex = new RegExp(`${separator}(?=(?:(?:[^"]*"){2})*[^"]*$)`);
+      const values = line.split(regex);
       
       const obj: any = {};
       
@@ -139,20 +147,49 @@ export const Settings: React.FC = () => {
       headers.forEach((h, i) => {
         let val = values[i]?.trim() || '';
         if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+        if (!val) return;
 
-        // Map Name
-        if (['name', 'nome', 'cliente', 'nome do cliente', 'razao social', 'razao'].includes(h)) obj.mapped_name = val;
-        // Map CPF/CNPJ
-        if (['cpf', 'cnpj', 'documento', 'doc', 'cpf/cnpj'].includes(h)) obj.mapped_cpf = val;
-        // Map Email
-        if (['email', 'e-mail', 'mail', 'correio'].includes(h)) obj.mapped_email = val;
-        // Map Mobile
-        if (['mobile', 'celular', 'telefone', 'tel', 'whatsapp', 'phone'].includes(h)) obj.mapped_mobile = val;
+        // --- Clients ---
+        // Name
+        if (['name', 'nome', 'cliente', 'nome do cliente', 'nome fantasia', 'razao social', 'razao', 'sacado', 'tomador', 'titular', 'consumidor', 'destinatario', 'pagador', 'comprador'].some(k => h.includes(k))) obj.mapped_name = val;
+        // CPF/CNPJ
+        if (['cpf', 'cnpj', 'documento', 'doc', 'cpf/cnpj', 'inscricao', 'identificacao', 'nif', 'passaporte', 'cpf_cnpj'].some(k => h.includes(k))) obj.mapped_cpf = val;
+        // Email
+        if (['email', 'e-mail', 'mail', 'correio', 'eletronico', 'contato', 'usuario'].some(k => h.includes(k))) obj.mapped_email = val;
+        // Phone
+        if (['mobile', 'celular', 'telefone', 'tel', 'whatsapp', 'phone', 'fone', 'contato'].some(k => h.includes(k))) obj.mapped_mobile = val;
         
-        // Map Transaction Fields
-        if (['amount', 'valor', 'preco', 'total'].includes(h)) obj.mapped_amount = val;
-        if (['description', 'descricao', 'historico'].includes(h)) obj.mapped_desc = val;
-        if (['date', 'data', 'dia'].includes(h)) obj.mapped_date = val;
+        // --- Transactions ---
+        // 1. Value/Amount (Priority)
+        if (['valor', 'amount', 'total', 'vlr', 'preco', 'liquido', 'bruto', 'recebimento', 'pagamento', 'crédito', 'débito', 'entrada', 'saida'].some(k => h.includes(k))) {
+            obj.mapped_amount = val;
+        }
+        // Expense inference
+        if (['saida', 'debito', 'despesa', 'pagamento'].some(k => h.includes(k))) { 
+            obj.force_expense = true; 
+        }
+        // Income inference
+        if (['entrada', 'credito', 'receita', 'recebimento'].some(k => h.includes(k))) { 
+            obj.force_income = true; 
+        }
+
+        // 2. Description
+        if (['descrição', 'descricao', 'historico', 'histórico', 'description', 'discriminacao', 'detalhe', 'memo', 'referencia', 'narrativa', 'produto', 'servico', 'observacao', 'obs'].some(k => h.includes(k))) obj.mapped_desc = val;
+        
+        // 3. Date
+        if (['data', 'date', 'dia', 'dt', 'emissao', 'lancamento', 'movimento', 'competencia', 'vencimento', 'pagamento', 'data_emissao', 'data_vencimento'].some(k => h.includes(k))) obj.mapped_date = val;
+        
+        // 4. Code / Código
+        if (['código', 'codigo', 'cod', 'id', 'ref', 'code', 'numero', 'num', 'documento', 'n doc', 'controle', 'n_doc', 'num_doc', 'nota fiscal', 'nf'].some(k => h === k || h.startsWith(k) || h.endsWith(k))) obj.mapped_code = val;
+        
+        // 5. Account / Conta
+        if (['conta', 'banco', 'account', 'agencia', 'carteira', 'origem', 'destino', 'instituicao', 'portador'].some(k => h.includes(k))) obj.mapped_account = val;
+        
+        // 6. Category / Categoria
+        if (['categoria', 'category', 'classificacao', 'natureza', 'grupo', 'tipo', 'plano', 'subcategoria'].some(k => h.includes(k))) obj.mapped_category = val;
+        
+        // 7. Entity / Entidade
+        if (['entidade', 'entity', 'empresa', 'unidade', 'loja', 'filial', 'centro de custo', 'cc', 'estabelecimento', 'fornecedor', 'cliente'].some(k => h.includes(k))) obj.mapped_entity = val;
       });
 
       return obj;
@@ -174,11 +211,65 @@ export const Settings: React.FC = () => {
             alert("Arquivo vazio ou formato inválido.");
             return;
         }
+
+        // --- Helpers for Formatting ---
+        const parseCurrency = (val: string) => {
+          if (!val) return 0;
+          let clean = String(val).trim();
+          
+          // Handle parentheses for negative numbers (Accounting format)
+          const isNegativeParenthesis = clean.startsWith('(') && clean.endsWith(')');
+          if (isNegativeParenthesis) {
+            clean = clean.replace(/[()]/g, '');
+          }
+
+          clean = clean.replace(/[R$\s]/g, '');
+          
+          // Logic to distinguish PT-BR (1.000,00) vs US (1,000.00) vs Plain (1000.00)
+          const lastComma = clean.lastIndexOf(',');
+          const lastDot = clean.lastIndexOf('.');
+
+          if (lastComma > lastDot) {
+            // Likely PT-BR: 1.200,50 or 1200,50
+            // Remove all dots, replace comma with dot
+            clean = clean.replace(/\./g, '').replace(',', '.');
+          } else if (lastDot > lastComma) {
+            // Likely US: 1,200.50 or 1200.50
+            // Remove all commas
+            clean = clean.replace(/,/g, '');
+          }
+          
+          let num = parseFloat(clean);
+          if (isNaN(num)) return 0;
+          
+          if (isNegativeParenthesis) num = -Math.abs(num);
+          
+          return num;
+        };
+
+        const parseDate = (val: string) => {
+          if (!val) return new Date().toISOString();
+          // Handle DD/MM/YYYY
+          if (val.includes('/')) {
+            const parts = val.split('/');
+            if (parts.length === 3) {
+               // Check if year is first or last. Assume DD/MM/YYYY if year > 31 is last
+               if (parseInt(parts[2]) > 1900) {
+                 return `${parts[2]}-${parts[1]}-${parts[0]}`;
+               } else if (parseInt(parts[0]) > 1900) {
+                 return `${parts[0]}-${parts[1]}-${parts[2]}`;
+               }
+            }
+          }
+          // Try standard date parse
+          const d = new Date(val);
+          return !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+        };
+        // ------------------------------
         
         if (type === 'clients') {
             const clients: Client[] = rows.map((r: any) => ({
                 id: crypto.randomUUID(),
-                // Use mapped fields if available, otherwise fallback or empty
                 name: r.mapped_name || r.name || r.Nome || 'Sem Nome',
                 cpf: r.mapped_cpf || r.cpf || '',
                 mobile: r.mapped_mobile || r.mobile || '',
@@ -186,30 +277,82 @@ export const Settings: React.FC = () => {
                 createdAt: new Date().toISOString()
             }));
 
-            // Filter out empty names
             const validClients = clients.filter(c => c.name !== 'Sem Nome' || c.cpf);
-
             await db.bulkUpsertClients(validClients);
             alert(`${validClients.length} clientes importados com sucesso!`);
         } else {
-             const txs: Transaction[] = rows.map((r: any) => ({
-                id: crypto.randomUUID(),
-                type: (r.type === 'expense' || r.tipo === 'saida') ? 'expense' : 'income',
-                description: r.mapped_desc || r.description || 'Importado via CSV',
-                amount: Number(r.mapped_amount || r.amount || 0),
-                date: r.mapped_date || r.date || new Date().toISOString(),
-                entity: r.entity || 'Geral',
-                category: r.category || 'Outros',
-                observation: r.observation,
-                clientId: r.clientId,
-                serviceType: r.serviceType,
-                consultant: r.consultant,
-                supplier: r.supplier
-            }));
+             // Track new Categories and Entities to auto-register them
+             const newCategories = new Set<string>();
+             const newEntities = new Set<string>();
+
+             const txs: Transaction[] = rows.map((r: any) => {
+                const amount = parseCurrency(r.mapped_amount || r.amount || '0');
+                
+                // Auto-detect type
+                let txType: 'income' | 'expense' = 'income';
+                if (r.force_expense) txType = 'expense';
+                else if (r.force_income) txType = 'income';
+                else if (amount < 0) txType = 'expense';
+                else if (importTxType === 'income') txType = 'income';
+                else if (importTxType === 'expense') txType = 'expense';
+                
+                // Fields
+                const desc = r.mapped_desc || r.description || 'Importado via CSV';
+                const code = r.mapped_code ? `[Cód: ${r.mapped_code}] ` : '';
+                
+                // Combine extras into observation or prepend to description
+                const fullDesc = `${code}${desc}`.trim();
+                const account = r.mapped_account ? `Conta: ${r.mapped_account}` : '';
+                const obs = `${account} ${r.observation || ''}`.trim();
+
+                const category = r.mapped_category || r.Categoria || 'Outros';
+                const entity = r.mapped_entity || r.Entidade || settings.entities[0] || 'Geral';
+
+                if (category && category !== 'Outros') newCategories.add(category);
+                if (entity && entity !== 'Geral') newEntities.add(entity);
+
+                return {
+                  id: crypto.randomUUID(),
+                  type: txType,
+                  description: fullDesc,
+                  amount: Math.abs(amount), // Store as positive, type determines sign
+                  date: parseDate(r.mapped_date || r.date),
+                  entity: entity,
+                  category: category,
+                  observation: obs,
+                  clientId: r.clientId,
+                  serviceType: r.serviceType,
+                  consultant: r.consultant,
+                  supplier: r.supplier
+                };
+            });
+
+            // Auto-Register Logic
+            let settingsUpdated = false;
+            const updatedSettings = { ...settings };
+
+            newCategories.forEach(cat => {
+              if (!updatedSettings.categories.includes(cat)) {
+                updatedSettings.categories.push(cat);
+                settingsUpdated = true;
+              }
+            });
+
+            newEntities.forEach(ent => {
+              if (!updatedSettings.entities.includes(ent)) {
+                updatedSettings.entities.push(ent);
+                settingsUpdated = true;
+              }
+            });
+
+            if (settingsUpdated) {
+              await db.updateSettings(updatedSettings);
+              setSettings(updatedSettings);
+            }
+
             await db.bulkUpsertTransactions(txs);
-            alert(`${txs.length} transações importadas com sucesso!`);
+            alert(`${txs.length} transações importadas! ${settingsUpdated ? 'Novas categorias/entidades foram cadastradas automaticamente.' : ''}`);
         }
-        // Reset input
         e.target.value = '';
       } catch (error: any) {
         alert('Erro ao importar CSV: ' + error.message);
@@ -221,25 +364,53 @@ export const Settings: React.FC = () => {
   // --- PDF Import & Repair Logic ---
 
   const naiveRepairJSON = (jsonStr: string): string => {
-    // 1. Basic Cleanup
+    // 1. Remove Markdown
     let cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    // 2. Count brackets to detect truncation
-    let openBraces = (cleaned.match(/{/g) || []).length;
-    let closeBraces = (cleaned.match(/}/g) || []).length;
-    let openBrackets = (cleaned.match(/\[/g) || []).length;
-    let closeBrackets = (cleaned.match(/\]/g) || []).length;
+    // 2. Locate actual JSON start
+    const firstBrace = cleaned.indexOf('{');
+    const firstBracket = cleaned.indexOf('[');
+    let start = -1;
+    if (firstBrace > -1 && firstBracket > -1) start = Math.min(firstBrace, firstBracket);
+    else if (firstBrace > -1) start = firstBrace;
+    else if (firstBracket > -1) start = firstBracket;
+    
+    if (start > -1) {
+        cleaned = cleaned.substring(start);
+    }
 
-    // 3. Append missing closing brackets
-    // Order matters: usually we are inside an object inside an array, so close } then ]
-    while (closeBraces < openBraces) {
-      cleaned += "}";
-      closeBraces++;
+    // 3. Fix common AI errors (missing commas)
+    // Objects in array: } { -> }, {
+    cleaned = cleaned.replace(/}\s*{/g, '}, {'); 
+    // Arrays in array: ] [ -> ], [
+    cleaned = cleaned.replace(/]\s*\[/g, '], ['); 
+    // String value to Key: "val" "key" -> "val", "key"
+    cleaned = cleaned.replace(/"\s+"(?=\w)/g, '", "'); 
+    // Number/Bool/Null value to Key: 123 "key" -> 123, "key"
+    cleaned = cleaned.replace(/(\d+|true|false|null)\s+"(?=\w)/g, '$1, "');
+
+    // 4. Fix unclosed string at the end (truncated)
+    const quoteCount = (cleaned.match(/"/g) || []).length - (cleaned.match(/\\"/g) || []).length;
+    if (quoteCount % 2 !== 0) {
+        cleaned += '"';
     }
-    while (closeBrackets < openBrackets) {
-      cleaned += "]";
-      closeBrackets++;
+
+    // 5. Remove trailing comma if present
+    if (cleaned.trim().endsWith(',')) {
+        cleaned = cleaned.trim().slice(0, -1);
     }
+
+    // 6. Balance Braces/Brackets
+    const openBraces = (cleaned.match(/{/g) || []).length;
+    const closeBraces = (cleaned.match(/}/g) || []).length;
+    const openBrackets = (cleaned.match(/\[/g) || []).length;
+    const closeBrackets = (cleaned.match(/\]/g) || []).length;
+
+    let diffBraces = openBraces - closeBraces;
+    while (diffBraces > 0) { cleaned += "}"; diffBraces--; }
+
+    let diffBrackets = openBrackets - closeBrackets;
+    while (diffBrackets > 0) { cleaned += "]"; diffBrackets--; }
 
     return cleaned;
   };
@@ -268,36 +439,48 @@ export const Settings: React.FC = () => {
         } else if (importTxType === 'expense') {
           txInstruction = "Force 'type': 'expense' para todas as transações.";
         } else {
-          txInstruction = "Determine 'income' ou 'expense' pelo contexto (Crédito/Débito).";
+          txInstruction = "Determine 'income' ou 'expense' pelo contexto (Crédito/Débito, Entrada/Saída ou sinal negativo).";
         }
 
         const prompt = `
-          TAREFA: Extração em Massa de Dados (Bulk Data Extraction) - EXTREME PRECISION MODE.
+          TAREFA: Extração de Dados Financeiros (Strict Mode).
           
-          Analise o PDF fornecido. Extraia TODOS os Clientes e TODAS as Transações financeiras encontradas, linha por linha.
+          Analise o PDF fornecido. Extraia TODOS os Clientes e TODAS as Transações financeiras encontradas, linha por linha, sem resumir.
           
-          SAÍDA ESPERADA:
-          Retorne APENAS um objeto JSON válido.
+          SAÍDA OBRIGATÓRIA (JSON ESTRICTO):
           {
-            "clients": [
-              { "name": "Nome Completo", "cpf": "000...", "email": "...", "mobile": "..." }
-            ],
+            "clients": [{"name":"...","cpf":"...","email":"...","mobile":"..."}],
             "transactions": [
-              { "date": "YYYY-MM-DD", "description": "Descrição", "amount": 100.50, "type": "income/expense" }
+              {
+                "date": "YYYY-MM-DD",
+                "description": "...",
+                "amount": 100.00,
+                "type": "income/expense",
+                "code": "...",
+                "account": "...",
+                "category": "...",
+                "entity": "..."
+              }
             ]
           }
 
-          REGRAS DE CLIENTES:
-          - Procure por listas de nomes, pagadores, sacados, ou tabelas de cadastro.
-          - Se houver CPF/CNPJ na mesma linha, capture.
-          
-          REGRAS DE TRANSAÇÕES:
-          - ${txInstruction}
-          - Extraia data, descrição e valor numérico.
+          REGRAS DE EXTRAÇÃO:
+          1. Tente identificar e extrair exatamente as colunas solicitadas: "Código", "Conta", "Categoria", "Entidade", "Descrição", "Data", "Valor".
+          2. Mapeie essas colunas para os campos JSON correspondentes:
+             - Código -> code
+             - Conta -> account
+             - Categoria -> category
+             - Entidade -> entity (Se for Nome do Cliente ou Fornecedor, coloque aqui)
+             - Descrição -> description
+             - Data -> date
+             - Valor -> amount
+          3. ${txInstruction}
+          4. NÃO altere os dados. Copie as descrições e códigos na íntegra.
+          5. Use o formato de data YYYY-MM-DD. Use ponto para decimais no valor numérico.
           
           IMPORTANTE:
           - Capture TUDO. Se houver 500 linhas, retorne 500 objetos.
-          - Se a resposta for ficar muito longa, finalize o JSON corretamente em vez de cortar no meio da sintaxe.
+          - NÃO adicione texto antes ou depois do JSON.
         `;
 
         const responseText = await generateBusinessInsight({
@@ -307,20 +490,38 @@ export const Settings: React.FC = () => {
           responseMimeType: 'application/json' // Force strictly valid JSON output
         });
 
-        // Try to parse, applying repair if necessary
+        // --- ROBUST BACKTRACKING PARSER ---
         let data: any = {};
-        try {
-          data = JSON.parse(responseText);
-        } catch (jsonError) {
-          console.warn("JSON direto falhou, tentando reparo...", jsonError);
-          const repaired = naiveRepairJSON(responseText);
-          try {
-            data = JSON.parse(repaired);
-            setImportLog(prev => prev + "\n⚠️ JSON foi reparado automaticamente (truncamento detectado).");
-          } catch (fatalError: any) {
-            throw new Error(`Falha crítica ao ler JSON da IA: ${fatalError.message}. Tente um PDF menor.`);
-          }
+        let parseSuccess = false;
+        let candidate = responseText;
+        const maxRetries = 50; 
+
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const repaired = naiveRepairJSON(candidate);
+                data = JSON.parse(repaired);
+                parseSuccess = true;
+                if (i > 0) {
+                     setImportLog(prev => prev + `\n⚠️ JSON recuperado após ${i} tentativa(s) de corte de dados corrompidos.`);
+                }
+                break;
+            } catch (e) {
+                // If it failed, try to cut off the last object/array closure to see if the previous part was valid
+                const lastClose = candidate.lastIndexOf('}');
+                if (lastClose === -1) break; // Can't backtrack further
+                
+                // Cut string excluding the last closing brace found to force a re-balance in next repair
+                candidate = candidate.substring(0, lastClose);
+                
+                // If the slice ends up too short, stop
+                if (candidate.length < 10) break;
+            }
         }
+        
+        if (!parseSuccess) {
+             throw new Error("Não foi possível recuperar um JSON válido mesmo após várias tentativas de reparo. O arquivo pode ser muito complexo ou o modelo excedeu o limite de saída.");
+        }
+        // ------------------------------------
         
         const newClients: Client[] = [];
         const newTxs: Transaction[] = [];
@@ -343,14 +544,18 @@ export const Settings: React.FC = () => {
         if (data.transactions && Array.isArray(data.transactions)) {
           data.transactions.forEach((t: any) => {
             if (t.description && t.amount) {
+              const codeStr = t.code ? `[Cód: ${t.code}] ` : '';
+              const accStr = t.account ? `Conta: ${t.account}` : '';
+              
               newTxs.push({
                 id: crypto.randomUUID(),
                 type: t.type === 'expense' ? 'expense' : 'income',
-                description: t.description,
+                description: `${codeStr}${t.description}`.trim(),
                 amount: Number(t.amount),
                 date: t.date || new Date().toISOString(),
-                entity: 'Importado',
-                category: 'Geral'
+                entity: t.entity || 'Importado',
+                category: t.category || 'Geral',
+                observation: accStr
               });
             }
           });
@@ -371,7 +576,7 @@ export const Settings: React.FC = () => {
           logMsg += "⚠️ Nenhum dado estruturado encontrado no formato esperado.";
         }
 
-        setImportLog(logMsg);
+        setImportLog(prev => prev + "\n" + logMsg);
 
       } catch (error: any) {
         setImportLog(`Erro Crítico na Importação: ${error.message}`);
@@ -383,37 +588,160 @@ export const Settings: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
+  const handlePdfToCsvConversion = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      alert("Selecione um arquivo PDF.");
+      return;
+    }
+
+    setIsConverting(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const base64 = (ev.target?.result as string).split(',')[1];
+        
+        const prompt = `
+          CONVERSOR PDF PARA CSV (MODO ESTRITO)
+          Analise o PDF e extraia os dados financeiros com precisão absoluta.
+          
+          COLUNAS OBRIGATÓRIAS (nesta ordem exata):
+          Código;Conta;Categoria;Entidade;Descrição;Data;Valor
+
+          REGRAS CRÍTICAS:
+          1. Identifique as colunas correspondentes no PDF (ex: "Num Doc" -> "Código", "Histórico" -> "Descrição", "Crédito/Débito" -> "Valor").
+          2. Se uma coluna (como Entidade ou Categoria) não existir no PDF, deixe o campo vazio entre os ponto-e-vírgulas (ex: ;;;).
+          3. NÃO invente dados. Extraia exatamente o que está escrito.
+          4. Formato de Data: DD/MM/AAAA
+          5. Formato de Valor: R$ 0,00 (formato brasileiro com vírgula). Use sinal de menos (-) APENAS se for explícito no PDF ou coluna de débito.
+          6. Use ponto-e-vírgula ';' como separador.
+          7. PRIMEIRA LINHA deve ser o cabeçalho.
+          8. NÃO resuma, extraia linha a linha.
+        `;
+
+        const responseText = await generateBusinessInsight({
+          prompt: prompt,
+          document: base64,
+          mode: 'thinking',
+        });
+
+        // Clean markdown
+        const cleanCsv = responseText.replace(/```csv/g, '').replace(/```/g, '').trim();
+
+        // 1. Create blob and download (Keep existing feature)
+        const blob = new Blob([cleanCsv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `convertido_${file.name.replace('.pdf', '')}.csv`;
+        link.click();
+
+        // 2. Auto-Import Logic (New Request)
+        const lines = cleanCsv.split('\n').filter(l => l.trim());
+        
+        // Skip Header if it matches expected
+        if (lines.length > 1) {
+             const dataLines = lines.slice(1);
+             const newTxs: Transaction[] = [];
+             
+             dataLines.forEach(line => {
+                 const cols = line.split(';');
+                 // Expected: Code(0);Account(1);Category(2);Entity(3);Desc(4);Date(5);Value(6)
+                 if (cols.length >= 7) {
+                     const code = cols[0].trim();
+                     const account = cols[1].trim();
+                     const category = cols[2].trim() || 'Geral';
+                     const entity = cols[3].trim() || settings.entities[0] || 'Geral';
+                     const description = cols[4].trim();
+                     const dateStr = cols[5].trim();
+                     const valueStr = cols[6].trim();
+
+                     // Formatting
+                     // Parse Date: DD/MM/YYYY -> YYYY-MM-DD
+                     let dateIso = new Date().toISOString();
+                     if (dateStr.includes('/')) {
+                        const parts = dateStr.split('/');
+                        if (parts.length === 3) dateIso = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                     }
+
+                     // Parse Amount: R$ 1.200,50 -> 1200.50
+                     let cleanVal = valueStr.replace(/[R$\s]/g, '');
+                     // Logic to distinguish PT-BR vs US
+                     const lastComma = cleanVal.lastIndexOf(',');
+                     const lastDot = cleanVal.lastIndexOf('.');
+                     if (lastComma > lastDot) cleanVal = cleanVal.replace(/\./g, '').replace(',', '.');
+                     else if (lastDot > lastComma) cleanVal = cleanVal.replace(/,/g, '');
+
+                     let amount = parseFloat(cleanVal);
+                     
+                     if (description && !isNaN(amount)) {
+                         newTxs.push({
+                             id: crypto.randomUUID(),
+                             type: amount < 0 ? 'expense' : 'income',
+                             amount: Math.abs(amount),
+                             description: `${code ? `[${code}] ` : ''}${description}`,
+                             date: dateIso,
+                             category: category,
+                             entity: entity,
+                             observation: account ? `Conta: ${account}` : ''
+                         });
+                     }
+                 }
+             });
+
+             if (newTxs.length > 0) {
+                 await db.bulkUpsertTransactions(newTxs);
+                 alert(`Conversão concluída!\n\n⬇️ CSV baixado.\n✅ ${newTxs.length} transações foram importadas automaticamente para o sistema.`);
+             } else {
+                 alert("Conversão concluída e baixada, mas nenhum dado válido foi encontrado para importação automática.");
+             }
+        } else {
+            alert("CSV gerado parece vazio. Download iniciado para verificação.");
+        }
+
+      } catch (err: any) {
+        alert("Erro na conversão: " + err.message);
+      } finally {
+        setIsConverting(false);
+        // Reset input
+        e.target.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in pb-10">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-slate-900">Configurações</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Configurações</h1>
         {currentUser && (
-          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded">Logado como: {currentUser.name}</span>
+          <span className="text-xs font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">Logado como: {currentUser.name}</span>
         )}
       </div>
 
-      <div className="flex border-b border-slate-200 overflow-x-auto gap-4">
+      <div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto gap-4">
         {['general', 'profile', 'team', 'registers', 'import', 'api'].map(tab => (
            <button 
              key={tab}
              onClick={() => setActiveTab(tab)}
-             className={`pb-2 px-1 capitalize transition-colors ${activeTab === tab ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-700'}`}
+             className={`pb-2 px-1 capitalize transition-colors ${activeTab === tab ? 'border-b-2 border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400 font-bold' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
            >
              {tab === 'api' ? 'Integrações' : tab === 'import' ? 'Dados' : tab === 'registers' ? 'Cadastros' : tab === 'general' ? 'Geral' : tab === 'team' ? 'Equipe' : 'Perfil'}
            </button>
         ))}
       </div>
 
-      <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 p-8 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
         {activeTab === 'general' && (
           <div className="space-y-4 max-w-lg">
              <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1">Razão Social</label>
-               <input className="w-full border border-slate-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={settings.companyName} onChange={e => setSettings({...settings, companyName: e.target.value})} />
+               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Razão Social</label>
+               <input className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" value={settings.companyName} onChange={e => setSettings({...settings, companyName: e.target.value})} />
              </div>
              <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1">CNPJ</label>
-               <input className="w-full border border-slate-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={settings.cnpj} onChange={e => setSettings({...settings, cnpj: e.target.value})} />
+               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">CNPJ</label>
+               <input className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" value={settings.cnpj} onChange={e => setSettings({...settings, cnpj: e.target.value})} />
              </div>
           </div>
         )}
@@ -422,11 +750,11 @@ export const Settings: React.FC = () => {
           <div className="max-w-xl">
              <div className="flex items-center gap-6 mb-8">
                <div className="relative group shrink-0">
-                 <div className="w-24 h-24 rounded-full border-4 border-slate-100 shadow-md overflow-hidden bg-slate-200">
+                 <div className="w-24 h-24 rounded-full border-4 border-slate-100 dark:border-slate-800 shadow-md overflow-hidden bg-slate-200 dark:bg-slate-800">
                     {profile.avatarUrl ? (
                       <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-400">
+                      <div className="w-full h-full flex items-center justify-center text-slate-400 dark:text-slate-500">
                         <UserIcon size={40} />
                       </div>
                     )}
@@ -437,25 +765,25 @@ export const Settings: React.FC = () => {
                  </label>
                </div>
                <div>
-                 <h3 className="text-lg font-bold text-slate-900">Foto de Perfil</h3>
-                 <p className="text-sm text-slate-500">Isso será exibido na barra lateral.</p>
+                 <h3 className="text-lg font-bold text-slate-900 dark:text-white">Foto de Perfil</h3>
+                 <p className="text-sm text-slate-500 dark:text-slate-400">Isso será exibido na barra lateral.</p>
                </div>
              </div>
 
              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Nome de Exibição</label>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nome de Exibição</label>
                   <input 
-                    className="w-full border border-slate-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
+                    className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
                     value={profile.name} 
                     onChange={e => setProfile({...profile, name: e.target.value})} 
                     placeholder="Seu nome"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">Cargo / Função</label>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Cargo / Função</label>
                   <input 
-                    className="w-full border border-slate-300 p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
+                    className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
                     value={profile.role} 
                     onChange={e => setProfile({...profile, role: e.target.value})} 
                     placeholder="Ex: Gerente"
@@ -469,23 +797,23 @@ export const Settings: React.FC = () => {
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {/* Add User */}
-              <div className="md:col-span-1 border-r border-slate-100 pr-0 md:pr-8">
-                <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2"><Users size={20}/> Adicionar Membro</h3>
+              <div className="md:col-span-1 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-8">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2"><Users size={20}/> Adicionar Membro</h3>
                 <div className="space-y-3">
                   <input 
                     placeholder="Nome Completo" 
-                    className="w-full border border-slate-300 p-2.5 rounded-lg text-sm"
+                    className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                     value={newUser.name}
                     onChange={e => setNewUser({...newUser, name: e.target.value})}
                   />
                   <input 
                     placeholder="Email (opcional)" 
-                    className="w-full border border-slate-300 p-2.5 rounded-lg text-sm"
+                    className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                     value={newUser.email}
                     onChange={e => setNewUser({...newUser, email: e.target.value})}
                   />
                   <select 
-                    className="w-full border border-slate-300 p-2.5 rounded-lg text-sm bg-white"
+                    className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                     value={newUser.role}
                     onChange={e => setNewUser({...newUser, role: e.target.value})}
                   >
@@ -501,23 +829,23 @@ export const Settings: React.FC = () => {
                   >
                     Cadastrar
                   </button>
-                  <p className="text-xs text-slate-500 mt-2">Limite: 5 funcionários adicionais.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Limite: 5 funcionários adicionais.</p>
                 </div>
               </div>
 
               {/* User List */}
               <div className="md:col-span-2">
-                 <h3 className="text-lg font-bold text-slate-900 mb-4">Membros da Equipe ({team.length})</h3>
+                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Membros da Equipe ({team.length})</h3>
                  <div className="space-y-3">
                    {team.map(user => (
-                     <div key={user.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                     <div key={user.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700 hover:shadow-md transition-shadow">
                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${user.role === 'Admin' ? 'bg-slate-800' : 'bg-blue-500'}`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${user.role === 'Admin' ? 'bg-slate-800 dark:bg-slate-950' : 'bg-blue-500'}`}>
                             {user.name.substring(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{user.name} {user.id === currentUser?.id && '(Você)'}</p>
-                            <p className="text-xs text-slate-500">{user.role}</p>
+                            <p className="font-bold text-slate-900 dark:text-white text-sm">{user.name} {user.id === currentUser?.id && '(Você)'}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{user.role}</p>
                           </div>
                        </div>
                        {user.role !== 'Admin' && (
@@ -525,7 +853,7 @@ export const Settings: React.FC = () => {
                            <Trash2 size={16} />
                          </button>
                        )}
-                       {user.role === 'Admin' && <span title="Admin Principal"><Shield size={16} className="text-slate-400 mr-2" /></span>}
+                       {user.role === 'Admin' && <span title="Admin Principal"><Shield size={16} className="text-slate-400" /></span>}
                      </div>
                    ))}
                  </div>
@@ -533,11 +861,11 @@ export const Settings: React.FC = () => {
             </div>
 
             {/* Audit Logs */}
-            <div className="border-t border-slate-100 pt-6">
-              <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <History size={20} className="text-slate-500" /> Histórico de Atividades
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <History size={20} className="text-slate-500 dark:text-slate-400" /> Histórico de Atividades
               </h3>
-              <div className="bg-slate-900 rounded-xl overflow-hidden shadow-inner">
+              <div className="bg-slate-900 dark:bg-slate-950 rounded-xl overflow-hidden shadow-inner">
                 <div className="max-h-60 overflow-y-auto custom-scrollbar p-4 space-y-2">
                   {logs.map(log => (
                     <div key={log.id} className="text-xs font-mono flex gap-3 text-slate-300 border-b border-slate-800 pb-2 last:border-0 last:pb-0">
@@ -558,31 +886,61 @@ export const Settings: React.FC = () => {
 
         {activeTab === 'registers' && (
            <div className="space-y-4">
-             <p className="text-sm text-slate-500 bg-blue-50 p-3 rounded-lg text-blue-700">Separe os itens por vírgula para criar múltiplas opções nos formulários.</p>
+             <p className="text-sm text-slate-500 dark:text-slate-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg text-blue-700 dark:text-blue-300">Separe os itens por vírgula para criar múltiplas opções nos formulários.</p>
              <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1">Empresas (Entidades)</label>
-               <textarea className="w-full border border-slate-300 p-3 rounded-lg h-24 focus:ring-2 focus:ring-blue-500 outline-none" value={settings.entities.join(', ')} onChange={e => setSettings({...settings, entities: e.target.value.split(',').map(s=>s.trim())})} />
+               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Empresas (Entidades)</label>
+               <textarea className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-3 h-24 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.entities.join(', ')} onChange={e => setSettings({...settings, entities: e.target.value.split(',').map(s=>s.trim())})} />
              </div>
              <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1">Tipos de Serviço (Extraídos do PDF ou Manuais)</label>
-               <textarea className="w-full border border-slate-300 p-3 rounded-lg h-24 focus:ring-2 focus:ring-blue-500 outline-none" value={settings.serviceTypes.join(', ')} onChange={e => setSettings({...settings, serviceTypes: e.target.value.split(',').map(s=>s.trim())})} />
+               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Tipos de Serviço (Extraídos do PDF ou Manuais)</label>
+               <textarea className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-3 h-24 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.serviceTypes.join(', ')} onChange={e => setSettings({...settings, serviceTypes: e.target.value.split(',').map(s=>s.trim())})} />
              </div>
              <div>
-               <label className="block text-sm font-bold text-slate-700 mb-1">Categorias Financeiras</label>
-               <textarea className="w-full border border-slate-300 p-3 rounded-lg h-24 focus:ring-2 focus:ring-blue-500 outline-none" value={settings.categories.join(', ')} onChange={e => setSettings({...settings, categories: e.target.value.split(',').map(s=>s.trim())})} />
+               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Categorias Financeiras</label>
+               <textarea className="w-full border border-slate-300 dark:border-slate-700 rounded-lg p-3 h-24 focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.categories.join(', ')} onChange={e => setSettings({...settings, categories: e.target.value.split(',').map(s=>s.trim())})} />
              </div>
            </div>
         )}
 
         {activeTab === 'import' && (
            <div className="space-y-6">
+             {/* New Tool: PDF to CSV Converter */}
+             <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-6 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+                <div className="flex items-start gap-4">
+                   <div className="p-3 bg-orange-100 dark:bg-orange-900/40 rounded-lg text-orange-600 dark:text-orange-400">
+                     <FileType size={24} />
+                   </div>
+                   <div className="flex-1">
+                     <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Conversor PDF para CSV + Importação</h3>
+                     <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
+                       Converta seus extratos ou relatórios em PDF para CSV e <strong>importe automaticamente</strong> para o sistema.
+                       <br/>Campos: <code>Código;Conta;Categoria;Entidade;Descrição;Data;Valor</code>.
+                     </p>
+                     <label className={`
+                        inline-flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors text-sm font-bold shadow-sm
+                        ${isConverting ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-orange-600 text-white hover:bg-orange-700'}
+                      `}>
+                         {isConverting ? <RefreshCw className="animate-spin" size={16} /> : <FileText size={16} />}
+                         {isConverting ? 'Processando...' : 'Converter e Importar'}
+                         <input 
+                           type="file" 
+                           accept="application/pdf" 
+                           className="hidden" 
+                           disabled={isConverting}
+                           onChange={handlePdfToCsvConversion} 
+                         />
+                      </label>
+                   </div>
+                </div>
+             </div>
+
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                {/* Clientes Card */}
-               <div className="border border-slate-200 p-6 rounded-xl text-center hover:border-blue-300 transition-colors">
-                 <h4 className="font-bold mb-2 text-slate-900">Clientes</h4>
-                 <p className="text-sm text-slate-500 mb-4">Gerencie sua base de clientes.</p>
+               <div className="border border-slate-200 dark:border-slate-800 p-6 rounded-xl text-center hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+                 <h4 className="font-bold mb-2 text-slate-900 dark:text-white">Clientes</h4>
+                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Gerencie sua base de clientes.</p>
                  <div className="space-y-3">
-                   <button onClick={() => handleExport('clients')} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-2 w-full text-sm font-medium">
+                   <button onClick={() => handleExport('clients')} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-2 w-full text-sm font-medium">
                      <Download size={16} /> Exportar CSV
                    </button>
                    <label className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer flex items-center justify-center gap-2 w-full text-sm font-medium shadow-sm transition-all">
@@ -593,11 +951,11 @@ export const Settings: React.FC = () => {
                </div>
 
                {/* Financeiro Card */}
-               <div className="border border-slate-200 p-6 rounded-xl text-center hover:border-blue-300 transition-colors">
-                 <h4 className="font-bold mb-2 text-slate-900">Financeiro</h4>
-                 <p className="text-sm text-slate-500 mb-4">Gerencie seu histórico financeiro.</p>
+               <div className="border border-slate-200 dark:border-slate-800 p-6 rounded-xl text-center hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
+                 <h4 className="font-bold mb-2 text-slate-900 dark:text-white">Financeiro</h4>
+                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Gerencie seu histórico financeiro.</p>
                  <div className="space-y-3">
-                   <button onClick={() => handleExport('tx')} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 flex items-center justify-center gap-2 w-full text-sm font-medium">
+                   <button onClick={() => handleExport('tx')} className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-center gap-2 w-full text-sm font-medium">
                      <Download size={16} /> Exportar CSV
                    </button>
                    <label className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer flex items-center justify-center gap-2 w-full text-sm font-medium shadow-sm transition-all">
@@ -608,39 +966,39 @@ export const Settings: React.FC = () => {
                </div>
              </div>
 
-             <div className="border-t border-slate-100 pt-6">
-               <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-                 <Sparkles className="text-purple-600" /> Migração Inteligente (AI)
+             <div className="border-t border-slate-100 dark:border-slate-800 pt-6">
+               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                 <Sparkles className="text-purple-600 dark:text-purple-400" /> Migração Inteligente (AI)
                </h3>
                
-               <div className="bg-purple-50 border border-purple-100 rounded-xl p-6">
+               <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl p-6 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
                   <div className="flex flex-col md:flex-row gap-6 items-start">
                     <div className="flex-1 space-y-4">
                       <div>
-                        <h4 className="font-bold text-purple-900 mb-1">Importar do Sistema Antigo (PDF)</h4>
-                        <p className="text-sm text-purple-700">
+                        <h4 className="font-bold text-purple-900 dark:text-purple-300 mb-1">Importar do Sistema Antigo (PDF)</h4>
+                        <p className="text-sm text-purple-700 dark:text-purple-400">
                           A I.A. fará uma leitura de <strong>Alta Precisão (JSON Bulk)</strong> para cadastrar clientes e transações. O sistema não usará ferramentas individuais para garantir que 100% dos dados sejam lidos.
                         </p>
                       </div>
 
-                      <div className="bg-white/50 p-3 rounded-lg border border-purple-100">
-                        <label className="block text-xs font-bold text-purple-800 mb-2 uppercase tracking-wide">Como interpretar valores?</label>
+                      <div className="bg-white/50 dark:bg-slate-800/50 p-3 rounded-lg border border-purple-100 dark:border-purple-800">
+                        <label className="block text-xs font-bold text-purple-800 dark:text-purple-300 mb-2 uppercase tracking-wide">Como interpretar valores?</label>
                         <div className="flex flex-col sm:flex-row gap-2">
                            <button 
                              onClick={() => setImportTxType('auto')}
-                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'auto' ? 'bg-white border-purple-400 text-purple-800 shadow-sm' : 'border-transparent hover:bg-white/50 text-slate-600'}`}
+                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'auto' ? 'bg-white dark:bg-slate-800 border-purple-400 text-purple-800 dark:text-purple-300 shadow-sm' : 'border-transparent hover:bg-white/50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400'}`}
                            >
                              <MousePointer2 size={14} /> Automático
                            </button>
                            <button 
                              onClick={() => setImportTxType('income')}
-                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'income' ? 'bg-emerald-100 border-emerald-300 text-emerald-800 shadow-sm' : 'border-transparent hover:bg-white/50 text-slate-600'}`}
+                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'income' ? 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 shadow-sm' : 'border-transparent hover:bg-white/50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400'}`}
                            >
                              <ArrowUpCircle size={14} /> Forçar Receitas
                            </button>
                            <button 
                              onClick={() => setImportTxType('expense')}
-                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'expense' ? 'bg-rose-100 border-rose-300 text-rose-800 shadow-sm' : 'border-transparent hover:bg-white/50 text-slate-600'}`}
+                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all ${importTxType === 'expense' ? 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-300 shadow-sm' : 'border-transparent hover:bg-white/50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400'}`}
                            >
                              <ArrowDownCircle size={14} /> Forçar Despesas
                            </button>
@@ -649,7 +1007,7 @@ export const Settings: React.FC = () => {
                       
                       <label className={`
                         flex items-center justify-center gap-2 w-full md:w-auto px-6 py-3 rounded-lg cursor-pointer transition-colors
-                        ${isImporting ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}
+                        ${isImporting ? 'bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md'}
                       `}>
                          {isImporting ? <RefreshCw className="animate-spin" /> : <FileUp />}
                          {isImporting ? 'Processando...' : 'Selecionar Arquivo PDF'}
@@ -665,8 +1023,8 @@ export const Settings: React.FC = () => {
                     
                     {importLog && (
                       <div className="flex-1 w-full">
-                        <label className="text-xs font-bold text-purple-900 uppercase mb-1 block">Log de Importação</label>
-                        <div className="bg-slate-900 text-emerald-400 font-mono text-xs p-4 rounded-lg h-40 overflow-y-auto whitespace-pre-wrap">
+                        <label className="text-xs font-bold text-purple-900 dark:text-purple-300 uppercase mb-1 block">Log de Importação</label>
+                        <div className="bg-slate-900 dark:bg-slate-950 text-emerald-400 font-mono text-xs p-4 rounded-lg h-40 overflow-y-auto whitespace-pre-wrap border border-slate-800">
                           {importLog}
                         </div>
                       </div>
@@ -679,13 +1037,13 @@ export const Settings: React.FC = () => {
 
         {activeTab === 'api' && (
           <div className="space-y-6">
-             <div className="bg-purple-50 p-6 rounded-xl border border-purple-100">
-               <label className="block text-sm font-bold text-purple-900 mb-2">Gemini API Key (Google AI)</label>
+             <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-xl border border-purple-100 dark:border-purple-800">
+               <label className="block text-sm font-bold text-purple-900 dark:text-purple-300 mb-2">Gemini API Key (Google AI)</label>
                <div className="relative">
                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={18} />
                  <input 
                    type="password" 
-                   className="w-full border border-purple-200 rounded-lg p-2.5 pl-10 focus:ring-2 focus:ring-purple-500 outline-none" 
+                   className="w-full border border-purple-200 dark:border-purple-700 rounded-lg p-2.5 pl-10 focus:ring-2 focus:ring-purple-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" 
                    value={settings.geminiApiKey || ''} 
                    onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} 
                    placeholder="Cole sua chave AIza..."
@@ -693,27 +1051,27 @@ export const Settings: React.FC = () => {
                </div>
              </div>
 
-             <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100">
+             <div className="bg-emerald-50 dark:bg-emerald-900/20 p-6 rounded-xl border border-emerald-100 dark:border-emerald-800">
                <div className="flex items-center gap-2 mb-4">
-                 <Database className="text-emerald-600" size={20} />
-                 <h3 className="font-bold text-emerald-900">Conexão Supabase</h3>
-                 {isSupabaseConnected && <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>}
+                 <Database className="text-emerald-600 dark:text-emerald-400" size={20} />
+                 <h3 className="font-bold text-emerald-900 dark:text-emerald-300">Conexão Supabase</h3>
+                 {isSupabaseConnected && <span className="text-xs bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>}
                </div>
                
                <div className="space-y-4">
                  <div>
-                   <label className="block text-sm font-bold text-emerald-900 mb-1">Project URL</label>
-                   <input className="w-full border border-emerald-200 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" value={settings.supabaseUrl || ''} onChange={e => setSettings({...settings, supabaseUrl: e.target.value})} placeholder="https://..." />
+                   <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">Project URL</label>
+                   <input className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseUrl || ''} onChange={e => setSettings({...settings, supabaseUrl: e.target.value})} placeholder="https://..." />
                  </div>
                  <div>
-                   <label className="block text-sm font-bold text-emerald-900 mb-1">API Key (anon/public)</label>
-                   <input type="password" className="w-full border border-emerald-200 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none" value={settings.supabaseKey || ''} onChange={e => setSettings({...settings, supabaseKey: e.target.value})} />
+                   <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">API Key (anon/public)</label>
+                   <input type="password" className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseKey || ''} onChange={e => setSettings({...settings, supabaseKey: e.target.value})} />
                  </div>
                </div>
              
                <div className="mt-6">
-                 <p className="text-sm font-bold text-emerald-800 mb-2">Configuração do Banco de Dados (SQL)</p>
-                 <div className="bg-slate-800 text-slate-300 p-4 rounded-lg text-xs font-mono overflow-auto h-48 border border-slate-700">
+                 <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300 mb-2">Configuração do Banco de Dados (SQL)</p>
+                 <div className="bg-slate-800 dark:bg-slate-950 text-slate-300 p-4 rounded-lg text-xs font-mono overflow-auto h-48 border border-slate-700">
 <pre>{`-- Execute no Supabase para atualizar o Schema de Equipe e Logs
 
 CREATE TABLE IF NOT EXISTS users (
@@ -750,8 +1108,8 @@ CREATE POLICY "Public Access" ON logs FOR ALL USING (true) WITH CHECK (true);
           </div>
         )}
         
-        <div className="mt-8 flex justify-end pt-6 border-t border-slate-100">
-          <button onClick={handleSave} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
+        <div className="mt-8 flex justify-end pt-6 border-t border-slate-100 dark:border-slate-800">
+          <button onClick={handleSave} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-blue-900/50 transition-all transform hover:-translate-y-0.5 flex items-center gap-2">
             <Save size={20} /> Salvar Alterações
           </button>
         </div>

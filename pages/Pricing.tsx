@@ -34,34 +34,34 @@ export const Pricing: React.FC = () => {
   }, [cost, tax, margin, fixed]);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
       <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-slate-900 flex items-center justify-center gap-2">
-          <Calculator className="text-blue-600" /> Calculadora de Preço
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white flex items-center justify-center gap-2">
+          <Calculator className="text-blue-600 dark:text-blue-400" /> Calculadora de Preço
         </h1>
-        <p className="text-slate-500">Defina o preço de venda ideal baseado em custos e margens.</p>
+        <p className="text-slate-500 dark:text-slate-400">Defina o preço de venda ideal baseado em custos e margens.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Inputs */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-          <h3 className="text-lg font-semibold text-slate-800 border-b pb-2">Custos e Margens</h3>
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-2">Custos e Margens</h3>
           
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Custo do Produto/Hora (R$)</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Custo do Produto/Hora (R$)</label>
             <input 
               type="number" 
-              className="w-full text-lg px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full text-lg px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               value={cost}
               onChange={e => setCost(Number(e.target.value))}
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Despesas Fixas Rateadas (R$)</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Despesas Fixas Rateadas (R$)</label>
             <input 
               type="number" 
-              className="w-full text-lg px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full text-lg px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
               value={fixed}
               onChange={e => setFixed(Number(e.target.value))}
             />
@@ -69,11 +69,11 @@ export const Pricing: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Impostos (%)</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Impostos (%)</label>
               <div className="relative">
                 <input 
                   type="number" 
-                  className="w-full text-lg px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full text-lg px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                   value={tax}
                   onChange={e => setTax(Number(e.target.value))}
                 />
@@ -81,11 +81,11 @@ export const Pricing: React.FC = () => {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Margem Desejada (%)</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Margem Desejada (%)</label>
               <div className="relative">
                 <input 
                   type="number" 
-                  className="w-full text-lg px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full text-lg px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                   value={margin}
                   onChange={e => setMargin(Number(e.target.value))}
                 />
@@ -96,7 +96,7 @@ export const Pricing: React.FC = () => {
         </div>
 
         {/* Outputs */}
-        <div className="bg-slate-900 text-white p-6 rounded-xl shadow-lg flex flex-col justify-center space-y-8 relative overflow-hidden">
+        <div className="bg-slate-900 dark:bg-slate-950 text-white p-6 rounded-xl shadow-lg flex flex-col justify-center space-y-8 relative overflow-hidden border border-slate-800">
           <div className="absolute top-0 right-0 p-32 bg-blue-500 rounded-full blur-3xl opacity-20 -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
           
           <div className="text-center space-y-2 z-10">

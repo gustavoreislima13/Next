@@ -58,7 +58,7 @@ export const Mural: React.FC = () => {
   return (
     <div className="h-full flex flex-col animate-fade-in">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Mural de Avisos</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Mural de Avisos</h1>
         <button 
           onClick={() => setIsAdding(!isAdding)}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition"
@@ -69,17 +69,17 @@ export const Mural: React.FC = () => {
 
       {/* Input Area */}
       {isAdding && (
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 animate-fade-in">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm mb-6 animate-fade-in">
           <input 
             type="text" 
             placeholder="Título..."
-            className="w-full text-lg font-bold mb-2 outline-none border-b border-slate-100 pb-1"
+            className="w-full text-lg font-bold mb-2 outline-none border-b border-slate-100 dark:border-slate-700 pb-1 bg-transparent text-slate-900 dark:text-white"
             value={newNoteTitle}
             onChange={e => setNewNoteTitle(e.target.value)}
           />
           <textarea 
             placeholder="Escreva seu aviso..."
-            className="w-full resize-none h-20 outline-none text-slate-600"
+            className="w-full resize-none h-20 outline-none text-slate-600 dark:text-slate-300 bg-transparent"
             value={newNoteContent}
             onChange={e => setNewNoteContent(e.target.value)}
           />

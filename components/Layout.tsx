@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Wallet, Tag, 
-  StickyNote, FolderOpen, Bot, Settings, Menu, X, LogOut 
+  StickyNote, FolderOpen, Bot, Settings, Menu, X, LogOut, Sun, Moon 
 } from 'lucide-react';
 import { db } from '../services/db';
 import { User } from '../types';
+import { useTheme } from './ThemeContext';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -21,6 +22,7 @@ const navItems = [
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
 
@@ -39,14 +41,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden transition-colors duration-300">
       {/* Sidebar Desktop & Mobile */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-100 transition-transform transform 
+        fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 dark:bg-slate-950 text-slate-100 transition-transform transform border-r border-slate-800
         ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} 
         md:relative md:translate-x-0 flex flex-col
       `}>
-        <div className="h-16 flex items-center px-6 border-b border-slate-700">
+        <div className="h-16 flex items-center px-6 border-b border-slate-800">
           <div className="flex items-center gap-2 font-bold text-xl tracking-tight text-white">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">N</div>
             NEXUS OS
@@ -78,7 +80,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-700 space-y-2">
+        <div className="p-4 border-t border-slate-800 space-y-2">
+           {/* Theme Toggle */}
+           <button 
+            onClick={toggleTheme}
+            className="flex items-center gap-3 w-full text-left text-slate-400 hover:text-white hover:bg-slate-800 px-3 py-2 rounded-lg text-sm transition-colors mb-2"
+          >
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+            {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
+          </button>
+
           <button 
             onClick={() => navigate('/config?tab=profile')}
             className="flex items-center gap-3 w-full text-left hover:bg-slate-800 p-2 rounded-lg transition-colors group"
@@ -110,11 +121,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Mobile Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-4 md:hidden justify-between shrink-0">
-          <button onClick={toggleMobile} className="text-slate-600">
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 md:hidden justify-between shrink-0 transition-colors">
+          <button onClick={toggleMobile} className="text-slate-600 dark:text-slate-300">
             <Menu size={24} />
           </button>
-          <span className="font-bold text-slate-800">NEXUS</span>
+          <span className="font-bold text-slate-800 dark:text-white">NEXUS</span>
           <div className="w-6" /> {/* Spacer */}
         </header>
 

@@ -135,7 +135,10 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
     modelName = 'gemini-3-pro-preview';
     config = {
       tools,
-      thinkingConfig: { thinkingBudget: 32768 } // Max thinking
+      // Increased output limit to allow large JSON responses for PDF extraction
+      maxOutputTokens: 65536,
+      // Reduced thinking budget to leave room for large JSON output
+      thinkingConfig: { thinkingBudget: 2048 } 
     };
     // Re-apply responseMimeType if it was set, as we overwrote config object
     if (responseMimeType) {
