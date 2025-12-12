@@ -9,9 +9,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   banks: ['Banco do Brasil', 'Nubank'],
   serviceTypes: ['Consultoria', 'Projeto'],
   categories: ['Operacional', 'Marketing', 'Pessoal'],
-  geminiApiKey: 'AIzaSyBqqmoHa1fjNxw9YpopcHoVABCb64iC1TM',
-  supabaseUrl: 'https://qearqffblyeqnmgwgfqa.supabase.co',
-  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFlYXJxZmZibHllcW5tZ3dnZnFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ5NTI2OTMsImV4cCI6MjA4MDUyODY5M30.qAoAMB1WUku_QPTEPLiu5a-m7kIoRRb6UEuYH1zIhBw'
+  geminiApiKey: '',
+  supabaseUrl: '',
+  supabaseKey: ''
 };
 
 const DEFAULT_PROFILE: UserProfile = { name: 'Admin', role: 'Gerente', avatarUrl: '' };
