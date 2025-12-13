@@ -37,14 +37,30 @@ class DatabaseService {
 
   private initSupabase() {
     const s = this.getLocalSettings();
-    const url = s.supabaseUrl || DEFAULT_SETTINGS.supabaseUrl;
-    const key = s.supabaseKey || DEFAULT_SETTINGS.supabaseKey;
+    // Support Environment Variables (Vite standard)
+    const envSupabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const envSupabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+
+    // Prioritize ENV over local settings for security
+    const url = (envSupabaseUrl || s.supabaseUrl || '').trim();
+    const key = (envSupabaseKey || s.supabaseKey || '').trim();
+
     if (url && key) {
       try {
         this.supabase = createClient(url, key);
         this.useSupabase = true;
-      } catch (e) { this.useSupabase = false; }
+      } catch (e) {
+        console.warn("Nexus DB: Failed to init Supabase client (invalid URL/Key). Using local storage.");
+        this.useSupabase = false; 
+      }
+    } else {
+      this.useSupabase = false;
     }
+  }
+
+  // Check if configured via Environment Variables (Secure Mode)
+  public isEnvSupabaseConfigured(): boolean {
+    return !!((import.meta as any).env?.VITE_SUPABASE_URL && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY);
   }
 
   // Local Helpers

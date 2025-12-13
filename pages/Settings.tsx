@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { db } from '../services/db';
 import { AppSettings, Client, Transaction, UserProfile, User, AuditLog } from '../types';
-import { generateBusinessInsight } from '../services/geminiService';
-import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2, FileType, Terminal, XCircle, PlusCircle } from 'lucide-react';
+import { generateBusinessInsight, naiveRepairJSON } from '../services/geminiService';
+import { Save, Database, Key, CheckCircle, AlertCircle, ExternalLink, Download, Upload, FileText, User as UserIcon, Camera, FileUp, Sparkles, RefreshCw, Users, Shield, Trash2, History, Activity, ArrowDownCircle, ArrowUpCircle, MousePointer2, FileType, Terminal, XCircle, PlusCircle, ShieldCheck } from 'lucide-react';
+import { useToast } from '../components/ToastContext';
 
 interface LogEntry {
   id: string;
@@ -13,11 +14,13 @@ interface LogEntry {
 }
 
 export const Settings: React.FC = () => {
+  const { addToast } = useToast();
   const [searchParams] = useSearchParams();
   const [settings, setSettings] = useState<AppSettings>(db.getLocalSettings());
   const [profile, setProfile] = useState<UserProfile>(db.getUserProfile());
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'general');
-  const [isSupabaseConnected, setIsSupabaseConnected] = useState(false);
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState(db.isSupabaseConfigured());
+  const [isEnvSupabase, setIsEnvSupabase] = useState(db.isEnvSupabaseConfigured());
   
   // Team & Logs
   const [team, setTeam] = useState<User[]>([]);
@@ -36,14 +39,26 @@ export const Settings: React.FC = () => {
 
   // API Key Status
   const hasEnvKey = (() => {
-    try { return !!process.env.API_KEY; } catch { return false; }
+    try { 
+      // Check both process.env and import.meta.env
+      if (process.env.API_KEY) return true;
+      // @ts-ignore
+      if (import.meta.env && import.meta.env.VITE_API_KEY) return true;
+      return false;
+    } catch { return false; }
   })();
 
-  const isValidApiKey = (key?: string) => key && key.startsWith('AIza');
+  const isValidApiKey = (key?: string) => {
+    if (!key) return false;
+    const k = key.trim();
+    // Relaxed check: Starts with AIza and has reasonable length (>30)
+    return k.startsWith('AIza') && k.length >= 30;
+  };
 
   useEffect(() => {
      db.getSettings().then(setSettings);
      setIsSupabaseConnected(db.isSupabaseConfigured());
+     setIsEnvSupabase(db.isEnvSupabaseConfigured());
      loadTeamAndLogs();
      setCurrentUser(db.getCurrentUser());
   }, []);
@@ -74,18 +89,41 @@ export const Settings: React.FC = () => {
   const clearImportLogs = () => setImportLogs([]);
 
   const handleSave = async () => {
-    await db.updateSettings(settings);
+    // 1. Sanitize Inputs
+    const sanitizedSettings = {
+      ...settings,
+      geminiApiKey: settings.geminiApiKey ? settings.geminiApiKey.trim() : '',
+      supabaseUrl: settings.supabaseUrl ? settings.supabaseUrl.trim() : '',
+      supabaseKey: settings.supabaseKey ? settings.supabaseKey.trim() : ''
+    };
+
+    // 2. Validate Gemini Key
+    if (sanitizedSettings.geminiApiKey && !isValidApiKey(sanitizedSettings.geminiApiKey)) {
+      addToast("Aviso: A chave Gemini deve começar com 'AIza'.", "warning");
+    }
+
+    // 3. Supabase Validation Removed (Manual Input Disabled)
+
+    // 4. Save
+    await db.updateSettings(sanitizedSettings);
     await db.saveUserProfile(profile);
+    setSettings(sanitizedSettings);
+    
+    // 5. Update UI State
+    setIsSupabaseConnected(db.isSupabaseConfigured());
+    setIsEnvSupabase(db.isEnvSupabaseConfigured());
     window.dispatchEvent(new Event('profile-updated'));
-    alert('Configurações salvas com sucesso!');
-    window.location.reload(); 
+    
+    addToast('Configurações salvas com sucesso!', 'success');
   };
 
+  // ... (rest of the component methods: handleAvatarUpload, handleAddUser, etc.) ...
+  
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 2 * 1024 * 1024) {
-        alert("A imagem deve ter no máximo 2MB.");
+        addToast("A imagem deve ter no máximo 2MB.", "error");
         return;
       }
       const reader = new FileReader();
@@ -100,7 +138,7 @@ export const Settings: React.FC = () => {
   const handleAddUser = async () => {
     if (!newUser.name) return;
     if (team.length >= 6) { // 1 Admin + 5 Staff
-      alert("Limite de 6 usuários atingido (1 Admin + 5 Equipe).");
+      addToast("Limite de 6 usuários atingido (1 Admin + 5 Equipe).", "error");
       return;
     }
     const u: User = {
@@ -114,8 +152,9 @@ export const Settings: React.FC = () => {
       await db.saveUser(u);
       setNewUser({ name: '', role: 'Vendedor', email: '' });
       loadTeamAndLogs();
+      addToast(`Usuário ${u.name} adicionado.`, "success");
     } catch (e: any) {
-      alert(e.message);
+      addToast(e.message, "error");
     }
   };
 
@@ -124,8 +163,9 @@ export const Settings: React.FC = () => {
     try {
       await db.deleteUser(id);
       loadTeamAndLogs();
+      addToast("Usuário removido.", "info");
     } catch (e: any) {
-      alert(e.message);
+      addToast(e.message, "error");
     }
   };
 
@@ -147,7 +187,6 @@ export const Settings: React.FC = () => {
     link.click();
   };
 
-  // ... (CSV parsing functions remain same as original file, omitted for brevity but assumed present in context)
   const normalizeHeader = (h: string) => h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
   const parseCSV = (text: string) => {
@@ -190,7 +229,6 @@ export const Settings: React.FC = () => {
   };
 
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>, type: 'clients' | 'tx') => {
-    // ... (Implementation kept same as original, just ensuring imports are correct)
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -343,46 +381,12 @@ export const Settings: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const naiveRepairJSON = (jsonStr: string): string => {
-    let cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-    const firstBrace = cleaned.indexOf('{');
-    const firstBracket = cleaned.indexOf('[');
-    let start = -1;
-    if (firstBrace > -1 && firstBracket > -1) start = Math.min(firstBrace, firstBracket);
-    else if (firstBrace > -1) start = firstBrace;
-    else if (firstBracket > -1) start = firstBracket;
-    if (start > -1) {
-        cleaned = cleaned.substring(start);
-    }
-    cleaned = cleaned.replace(/}\s*{/g, '}, {'); 
-    cleaned = cleaned.replace(/]\s*\[/g, '], ['); 
-    cleaned = cleaned.replace(/"\s+"(?=\w)/g, '", "'); 
-    cleaned = cleaned.replace(/(\d+|true|false|null)\s+"(?=\w)/g, '$1, "');
-    const quoteCount = (cleaned.match(/"/g) || []).length - (cleaned.match(/\\"/g) || []).length;
-    if (quoteCount % 2 !== 0) {
-        cleaned += '"';
-    }
-    if (cleaned.trim().endsWith(',')) {
-        cleaned = cleaned.trim().slice(0, -1);
-    }
-    const openBraces = (cleaned.match(/{/g) || []).length;
-    const closeBraces = (cleaned.match(/}/g) || []).length;
-    const openBrackets = (cleaned.match(/\[/g) || []).length;
-    const closeBrackets = (cleaned.match(/\]/g) || []).length;
-    let diffBraces = openBraces - closeBraces;
-    while (diffBraces > 0) { cleaned += "}"; diffBraces--; }
-    let diffBrackets = openBrackets - closeBrackets;
-    while (diffBrackets > 0) { cleaned += "]"; diffBrackets--; }
-    return cleaned;
-  };
-
   const handleLegacyPDFImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ... (Kept same as original)
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.type !== 'application/pdf') {
-      alert("Por favor, selecione um arquivo PDF.");
+      addToast("Por favor, selecione um arquivo PDF.", "error");
       return;
     }
 
@@ -519,12 +523,11 @@ export const Settings: React.FC = () => {
   };
 
   const handlePdfToCsvConversion = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // ... (Kept same as original)
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (file.type !== 'application/pdf') {
-      alert("Selecione um arquivo PDF.");
+      addToast("Selecione um arquivo PDF.", "error");
       return;
     }
 
@@ -708,6 +711,7 @@ export const Settings: React.FC = () => {
           </div>
         )}
 
+        {/* ... (Team and Registers Tabs remain same) ... */}
         {activeTab === 'team' && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -812,9 +816,9 @@ export const Settings: React.FC = () => {
            </div>
         )}
 
+        {/* ... (Import Tab remains same) ... */}
         {activeTab === 'import' && (
            <div className="space-y-6">
-             {/* ... Import UI kept same ... */}
              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-6 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
                 <div className="flex items-start gap-4">
                    <div className="p-3 bg-orange-100 dark:bg-orange-900/40 rounded-lg text-orange-600 dark:text-orange-400">
@@ -836,7 +840,7 @@ export const Settings: React.FC = () => {
                    </div>
                 </div>
              </div>
-             {/* ... Export buttons kept same ... */}
+
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div className="border border-slate-200 dark:border-slate-800 p-6 rounded-xl text-center hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
                  <h4 className="font-bold mb-2 text-slate-900 dark:text-white">Clientes</h4>
@@ -880,7 +884,6 @@ export const Settings: React.FC = () => {
                         </p>
                       </div>
                       
-                      {/* ... Controls kept same ... */}
                       <div className="bg-white/50 dark:bg-slate-800/50 p-3 rounded-lg border border-purple-100 dark:border-purple-800">
                         <label className="block text-xs font-bold text-purple-800 dark:text-purple-300 mb-2 uppercase tracking-wide">Como interpretar valores?</label>
                         <div className="flex flex-col sm:flex-row gap-2">
@@ -903,7 +906,6 @@ export const Settings: React.FC = () => {
                </div>
              </div>
              
-             {/* Import Logs kept same */}
              {importLogs.length > 0 && (
                 <div className="mt-6 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-lg animate-fade-in">
                   <div className="bg-slate-800 dark:bg-slate-950 p-3 flex justify-between items-center border-b border-slate-700">
@@ -941,6 +943,11 @@ export const Settings: React.FC = () => {
         {activeTab === 'api' && (
           <div className="space-y-6">
              <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-xl border border-purple-100 dark:border-purple-800">
+               <div className="bg-purple-100 dark:bg-purple-900/40 border border-purple-200 dark:border-purple-700 p-3 rounded-lg text-xs text-purple-800 dark:text-purple-200 mb-4">
+                  <p className="font-bold flex items-center gap-1"><AlertCircle size={14}/> Recomendação de Segurança:</p>
+                  Para maior proteção, configure as chaves no arquivo <code>.env</code> em vez de digitar aqui.
+               </div>
+
                <label className="block text-sm font-bold text-purple-900 dark:text-purple-300 mb-2">Gemini API Key (Google AI)</label>
                <div className="relative">
                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={18} />
@@ -985,22 +992,26 @@ export const Settings: React.FC = () => {
                <div className="flex items-center gap-2 mb-4">
                  <Database className="text-emerald-600 dark:text-emerald-400" size={20} />
                  <h3 className="font-bold text-emerald-900 dark:text-emerald-300">Conexão Supabase</h3>
-                 {isSupabaseConnected && <span className="text-xs bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>}
+                 {isSupabaseConnected ? (
+                   <span className="text-xs bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>
+                 ) : (
+                   <span className="text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-bold">OFFLINE</span>
+                 )}
                </div>
                
-               <div className="space-y-4">
-                 <div>
-                   <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">Project URL</label>
-                   <input className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseUrl || ''} onChange={e => setSettings({...settings, supabaseUrl: e.target.value})} placeholder="https://..." />
-                 </div>
-                 <div>
-                   <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">API Key (anon/public)</label>
-                   <input type="password" className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseKey || ''} onChange={e => setSettings({...settings, supabaseKey: e.target.value})} />
-                 </div>
+               <div className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 p-4 rounded-lg flex items-start gap-3">
+                  <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0" size={24} />
+                  <div>
+                     <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Configuração via Ambiente (.env)</h4>
+                     <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-1">
+                       Para maior segurança, a configuração manual foi desativada.
+                       <br/>
+                       Adicione as chaves <code>https://qearqffblyeqnmgwgfqa.supabase.co</code> e <code>sb_secret_O8LP1OM3guGJu4gLE-HgUA_TrOOAWBb</code> no arquivo <code>.env</code>.
+                     </p>
+                  </div>
                </div>
              
                <div className="mt-6">
-                 {/* ... SQL Block kept same ... */}
                  <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300 mb-2">Configuração do Banco de Dados (SQL)</p>
                  <div className="bg-slate-800 dark:bg-slate-950 text-slate-300 p-4 rounded-lg text-xs font-mono overflow-auto h-48 border border-slate-700">
 <pre>{`-- Copie e cole todo este bloco no Editor SQL do Supabase para corrigir o banco de dados.

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { generateBusinessInsight, AIMode } from '../services/geminiService';
+import { generateBusinessInsight, AIMode, naiveRepairJSON } from '../services/geminiService';
 import { db } from '../services/db';
 import { StoredFile, Client, Transaction } from '../types';
 import { Send, Bot, RefreshCw, Key, ArrowRight, Mic, Image as ImageIcon, X, Zap, Brain, Sparkles, StopCircle, Radio, MessageCircle, Paperclip, FileText, Database, AlertTriangle, ExternalLink } from 'lucide-react';
@@ -32,59 +32,6 @@ export const AI: React.FC = () => {
     // Auto scroll
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
-
-  // --- JSON Repair Utility ---
-  const naiveRepairJSON = (jsonStr: string): string => {
-    // 1. Remove Markdown
-    let cleaned = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
-
-    // 2. Locate actual JSON start
-    const firstBrace = cleaned.indexOf('{');
-    const firstBracket = cleaned.indexOf('[');
-    let start = -1;
-    if (firstBrace > -1 && firstBracket > -1) start = Math.min(firstBrace, firstBracket);
-    else if (firstBrace > -1) start = firstBrace;
-    else if (firstBracket > -1) start = firstBracket;
-    
-    if (start > -1) {
-        cleaned = cleaned.substring(start);
-    }
-
-    // 3. Fix common AI errors (missing commas)
-    // Objects in array: } { -> }, {
-    cleaned = cleaned.replace(/}\s*{/g, '}, {'); 
-    // Arrays in array: ] [ -> ], [
-    cleaned = cleaned.replace(/]\s*\[/g, '], ['); 
-    // String value to Key: "val" "key" -> "val", "key"
-    cleaned = cleaned.replace(/"\s+"(?=\w)/g, '", "'); 
-    // Number/Bool/Null value to Key: 123 "key" -> 123, "key"
-    cleaned = cleaned.replace(/(\d+|true|false|null)\s+"(?=\w)/g, '$1, "');
-
-    // 4. Fix unclosed string at the end (truncated)
-    const quoteCount = (cleaned.match(/"/g) || []).length - (cleaned.match(/\\"/g) || []).length;
-    if (quoteCount % 2 !== 0) {
-        cleaned += '"';
-    }
-
-    // 5. Remove trailing comma if present
-    if (cleaned.trim().endsWith(',')) {
-        cleaned = cleaned.trim().slice(0, -1);
-    }
-
-    // 6. Balance Braces/Brackets
-    const openBraces = (cleaned.match(/{/g) || []).length;
-    const closeBraces = (cleaned.match(/}/g) || []).length;
-    const openBrackets = (cleaned.match(/\[/g) || []).length;
-    const closeBrackets = (cleaned.match(/\]/g) || []).length;
-
-    let diffBraces = openBraces - closeBraces;
-    while (diffBraces > 0) { cleaned += "}"; diffBraces--; }
-
-    let diffBrackets = openBrackets - closeBrackets;
-    while (diffBrackets > 0) { cleaned += "]"; diffBrackets--; }
-
-    return cleaned;
-  };
 
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;

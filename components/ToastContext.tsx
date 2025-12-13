@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
-type ToastType = 'success' | 'error' | 'info';
+type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface Toast {
   id: string;
@@ -46,12 +46,14 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               ${toast.type === 'success' ? 'bg-white dark:bg-slate-900 border-emerald-100 dark:border-emerald-900 text-emerald-800 dark:text-emerald-400' : ''}
               ${toast.type === 'error' ? 'bg-white dark:bg-slate-900 border-rose-100 dark:border-rose-900 text-rose-800 dark:text-rose-400' : ''}
               ${toast.type === 'info' ? 'bg-white dark:bg-slate-900 border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-400' : ''}
+              ${toast.type === 'warning' ? 'bg-white dark:bg-slate-900 border-amber-100 dark:border-amber-900 text-amber-800 dark:text-amber-400' : ''}
             `}
             style={{ minWidth: '300px' }}
           >
             {toast.type === 'success' && <CheckCircle size={20} className="text-emerald-500" />}
             {toast.type === 'error' && <AlertCircle size={20} className="text-rose-500" />}
             {toast.type === 'info' && <Info size={20} className="text-blue-500" />}
+            {toast.type === 'warning' && <AlertTriangle size={20} className="text-amber-500" />}
             
             <p className="flex-1 text-sm font-medium text-slate-700 dark:text-slate-200">{toast.message}</p>
             
