@@ -5,8 +5,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, Users, Target, DollarSign, Activity, RefreshCw, TrendingUp, PieChart as PieChartIcon, Award } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Users, Target, DollarSign, Activity, RefreshCw, TrendingUp, PieChart as PieChartIcon, Award, CloudOff } from 'lucide-react';
 import { useTheme } from '../components/ThemeContext';
+import { Link } from 'react-router-dom';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
@@ -38,6 +39,7 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [isSupabase, setIsSupabase] = useState(false);
   
   // Date Filtering State
   const [rangeMode, setRangeMode] = useState<RangeMode>('week');
@@ -46,6 +48,7 @@ export const Dashboard: React.FC = () => {
   const fetchData = async () => {
     if (transactions.length === 0) setLoading(true);
     try {
+      setIsSupabase(db.isSupabaseConfigured());
       const [txs, cls] = await Promise.all([
         db.getTransactions(),
         db.getClients(1, 2000) 
@@ -227,6 +230,23 @@ export const Dashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Local Storage Warning */}
+      {!isSupabase && (
+         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 rounded-xl flex items-start gap-3">
+            <CloudOff className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={20} />
+            <div>
+               <h3 className="font-bold text-amber-900 dark:text-amber-300 text-sm">Armazenamento Local (Offline)</h3>
+               <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                 O sistema está salvando dados apenas <strong>neste navegador</strong>. 
+                 As informações não aparecerão em outros computadores ou navegadores.
+               </p>
+               <Link to="/config?tab=api" className="text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline mt-2 inline-block">
+                 → Configurar Supabase para sincronizar dados na nuvem
+               </Link>
+            </div>
+         </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
