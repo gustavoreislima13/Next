@@ -39,20 +39,13 @@ export const Settings: React.FC = () => {
 
   // API Key Status
   const hasEnvKey = (() => {
-    try { 
-      // Check both process.env and import.meta.env
-      if (process.env.API_KEY) return true;
-      // @ts-ignore
-      if (import.meta.env && import.meta.env.VITE_API_KEY) return true;
-      return false;
-    } catch { return false; }
+    try { return !!process.env.API_KEY; } catch { return false; }
   })();
 
   const isValidApiKey = (key?: string) => {
     if (!key) return false;
     const k = key.trim();
-    // Relaxed check: Starts with AIza and has reasonable length (>30)
-    return k.startsWith('AIza') && k.length >= 30;
+    return k.startsWith('AIza') && k.length === 39;
   };
 
   useEffect(() => {
@@ -99,10 +92,22 @@ export const Settings: React.FC = () => {
 
     // 2. Validate Gemini Key
     if (sanitizedSettings.geminiApiKey && !isValidApiKey(sanitizedSettings.geminiApiKey)) {
-      addToast("Aviso: A chave Gemini deve começar com 'AIza'.", "warning");
+      addToast("Aviso: A chave Gemini deve começar com 'AIza' e ter 39 caracteres.", "warning");
     }
 
-    // 3. Supabase Validation Removed (Manual Input Disabled)
+    // 3. Validate Supabase URL (Only if editing manually)
+    if (!isEnvSupabase && sanitizedSettings.supabaseUrl) {
+      try {
+        new URL(sanitizedSettings.supabaseUrl); // Will throw if invalid
+        if (!sanitizedSettings.supabaseUrl.startsWith('https://')) {
+           addToast("A URL do Supabase deve começar com https://", "error");
+           return;
+        }
+      } catch (e) {
+        addToast("URL do Supabase inválida. Verifique o formato.", "error");
+        return;
+      }
+    }
 
     // 4. Save
     await db.updateSettings(sanitizedSettings);
@@ -117,8 +122,6 @@ export const Settings: React.FC = () => {
     addToast('Configurações salvas com sucesso!', 'success');
   };
 
-  // ... (rest of the component methods: handleAvatarUpload, handleAddUser, etc.) ...
-  
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -711,7 +714,6 @@ export const Settings: React.FC = () => {
           </div>
         )}
 
-        {/* ... (Team and Registers Tabs remain same) ... */}
         {activeTab === 'team' && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -816,7 +818,6 @@ export const Settings: React.FC = () => {
            </div>
         )}
 
-        {/* ... (Import Tab remains same) ... */}
         {activeTab === 'import' && (
            <div className="space-y-6">
              <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-6 hover:shadow-lg hover:-translate-y-1 transition-all duration-300">
@@ -943,11 +944,6 @@ export const Settings: React.FC = () => {
         {activeTab === 'api' && (
           <div className="space-y-6">
              <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-xl border border-purple-100 dark:border-purple-800">
-               <div className="bg-purple-100 dark:bg-purple-900/40 border border-purple-200 dark:border-purple-700 p-3 rounded-lg text-xs text-purple-800 dark:text-purple-200 mb-4">
-                  <p className="font-bold flex items-center gap-1"><AlertCircle size={14}/> Recomendação de Segurança:</p>
-                  Para maior proteção, configure as chaves no arquivo <code>.env</code> em vez de digitar aqui.
-               </div>
-
                <label className="block text-sm font-bold text-purple-900 dark:text-purple-300 mb-2">Gemini API Key (Google AI)</label>
                <div className="relative">
                  <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={18} />
@@ -992,24 +988,36 @@ export const Settings: React.FC = () => {
                <div className="flex items-center gap-2 mb-4">
                  <Database className="text-emerald-600 dark:text-emerald-400" size={20} />
                  <h3 className="font-bold text-emerald-900 dark:text-emerald-300">Conexão Supabase</h3>
-                 {isSupabaseConnected ? (
-                   <span className="text-xs bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>
-                 ) : (
-                   <span className="text-xs bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full font-bold">OFFLINE</span>
-                 )}
+                 {isSupabaseConnected && <span className="text-xs bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">CONECTADO</span>}
                </div>
                
-               <div className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 p-4 rounded-lg flex items-start gap-3">
-                  <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0" size={24} />
-                  <div>
-                     <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Configuração via Ambiente (.env)</h4>
-                     <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-1">
-                       Para maior segurança, a configuração manual foi desativada.
-                       <br/>
-                       Adicione as chaves <code>https://qearqffblyeqnmgwgfqa.supabase.co</code> e <code>sb_secret_O8LP1OM3guGJu4gLE-HgUA_TrOOAWBb</code> no arquivo <code>.env</code>.
-                     </p>
-                  </div>
-               </div>
+               {isEnvSupabase ? (
+                 <div className="bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-700 p-4 rounded-lg flex items-start gap-3">
+                    <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0" size={24} />
+                    <div>
+                       <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-sm">Modo Seguro Ativado</h4>
+                       <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-1">
+                         As credenciais do Supabase estão configuradas via <strong>Variáveis de Ambiente (.env)</strong>. 
+                         Por segurança, os campos foram ocultados da interface.
+                       </p>
+                    </div>
+                 </div>
+               ) : (
+                 <div className="space-y-4">
+                   <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 rounded-lg text-xs text-amber-800 dark:text-amber-200 mb-2">
+                      <p className="font-bold flex items-center gap-1"><AlertCircle size={14}/> Recomendação de Segurança:</p>
+                      Para maior proteção, configure as chaves no arquivo <code>.env</code> em vez de digitar aqui.
+                   </div>
+                   <div>
+                     <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">Project URL</label>
+                     <input className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseUrl || ''} onChange={e => setSettings({...settings, supabaseUrl: e.target.value})} placeholder="https://..." />
+                   </div>
+                   <div>
+                     <label className="block text-sm font-bold text-emerald-900 dark:text-emerald-300 mb-1">API Key (anon/public)</label>
+                     <input type="password" className="w-full border border-emerald-200 dark:border-emerald-700 rounded-lg p-2.5 focus:ring-2 focus:ring-emerald-500 outline-none bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={settings.supabaseKey || ''} onChange={e => setSettings({...settings, supabaseKey: e.target.value})} />
+                   </div>
+                 </div>
+               )}
              
                <div className="mt-6">
                  <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300 mb-2">Configuração do Banco de Dados (SQL)</p>

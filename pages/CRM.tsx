@@ -18,7 +18,7 @@ export const CRM: React.FC = () => {
   const pageSize = 50; // Increased page size for better overview
   
   // Debounce ref
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Selection & Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);

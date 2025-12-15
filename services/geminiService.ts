@@ -4,64 +4,36 @@ import { Client, Transaction } from '../types';
 
 const getAIClient = () => {
   let envKey = '';
-  
-  // 1. Try process.env (Vite 'define' replacement)
   try {
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-      envKey = process.env.API_KEY;
+    if (typeof process !== 'undefined' && process.env) {
+      envKey = process.env.API_KEY || '';
     }
-  } catch (e) {}
-
-  // 2. Try import.meta.env (Vite native)
-  if (!envKey) {
-    try {
-      // @ts-ignore
-      if (import.meta && import.meta.env && import.meta.env.VITE_API_KEY) {
-        // @ts-ignore
-        envKey = import.meta.env.VITE_API_KEY;
-      }
-    } catch (e) {}
+  } catch (e) {
+    // Ignore error
   }
 
   // Fallback to local settings or default
   const dbKey = db.getLocalSettings().geminiApiKey;
+  // Prioritize dbKey (Settings) over envKey (.env) so user can override a leaked env key via UI
+  // FIX: Trim whitespace which might cause startsWith to fail or SDK to error
+  const finalKey = (dbKey || envKey || '').trim();
   
-  // Prioritize dbKey (Settings) over envKey (.env)
-  let finalKey = (dbKey || envKey || '').trim();
-  
-  // Remove quotes if present (common .env issue)
-  if ((finalKey.startsWith('"') && finalKey.endsWith('"')) || (finalKey.startsWith("'") && finalKey.endsWith("'"))) {
-    finalKey = finalKey.slice(1, -1);
-  }
-
   if (!finalKey) return null;
 
   // SAFETY CHECK: Ensure key is a valid Browser API Key
-  // 1. Must start with 'AIza'
-  // 2. Must NOT look like a Service Account JSON or Private Key
-  if (!finalKey.startsWith('AIza')) {
-    if (finalKey.includes('PRIVATE KEY') || finalKey.includes('client_email')) {
-      console.error("CRITICAL: Service Account Key detected. You must use a Browser API Key (starting with 'AIza').");
-    } else {
-      console.warn("Nexus AI: Chave de API inválida. Deve começar com 'AIza'.");
-    }
-    return null;
-  }
-
-  const apiKeyRegex = /^AIza[0-9A-Za-z\-_]{30,}$/;
-  if (!apiKeyRegex.test(finalKey)) {
-    console.warn("Nexus AI: Chave de API com formato inválido.");
+  // Google API Keys start with "AIza" and are typically 39 characters long.
+  // Service Account keys or other secrets often have different formats that trigger the "Forbidden" error in the SDK.
+  const apiKeyRegex = /^AIza[0-9A-Za-z-_]{35}$/;
+  
+  if (!finalKey.startsWith('AIza') || !apiKeyRegex.test(finalKey)) {
+    console.warn("Nexus AI: Chave de API inválida detectada. Deve começar com 'AIza' e ter 39 caracteres.");
     return null;
   }
   
   try {
     return new GoogleGenAI({ apiKey: finalKey });
-  } catch (e: any) {
+  } catch (e) {
     console.error("Nexus AI: Failed to initialize GoogleGenAI client.", e);
-    // Explicitly catch the "Forbidden use of secret API key" error to prevent app crash
-    if (e.message && (e.message.includes('Forbidden') || e.message.includes('secret API key'))) {
-       console.error("CRITICAL: The SDK blocked this key. Please check if it's a Service Account key instead of an API Key.");
-    }
     return null;
   }
 };
@@ -158,7 +130,7 @@ export interface AIRequestOptions {
 
 export const generateBusinessInsight = async (options: AIRequestOptions | string): Promise<string> => {
   const ai = getAIClient();
-  if (!ai) return "Erro: Chave de API inválida ou bloqueada. Verifique as configurações (deve começar com 'AIza').";
+  if (!ai) return "Erro: Chave de API inválida ou não configurada. Use uma API Key 'AIza...' do Google AI Studio.";
 
   const { prompt, image, audio, document, mimeType, mode = 'standard', responseMimeType } = typeof options === 'string' 
     ? { prompt: options, image: undefined, audio: undefined, document: undefined, mimeType: undefined, mode: 'standard' as AIMode, responseMimeType: undefined } 
@@ -186,7 +158,7 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
       config.responseMimeType = responseMimeType;
     }
   } else if (image) {
-    modelName = 'gemini-3-pro-image-preview'; // Image analysis
+    modelName = 'gemini-3-pro-preview'; // Image analysis
   } else if (audio) {
     modelName = 'gemini-2.5-flash'; // Audio transcription
   } else if (document) {
@@ -313,12 +285,13 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
             return await executeAIRequest('gemini-2.5-flash', config);
         } catch (fallbackError: any) {
             console.error("AI Error (Fallback Attempt):", fallbackError);
+            // If fallback also fails, return a quota error message
             return `Erro de Cota: O limite de uso dos modelos foi atingido. Aguarde alguns instantes.`;
         }
     }
 
     // Parsing error message for specific Critical Key issues
-    if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key') || msg.includes('browser') || msg.includes('Forbidden')) {
+    if (msg.includes('403') || msg.toLowerCase().includes('leaked') || msg.toLowerCase().includes('key') || msg.includes('browser')) {
         return `CRITICAL_ERROR_LEAKED_KEY`;
     }
 
