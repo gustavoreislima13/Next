@@ -20,7 +20,8 @@ export interface Transaction {
   date: string;
   entity: string; // 'CMG' | 'Everton Guerra'
   category: string;
-  observation?: string; // Novo campo
+  account?: string; // Novo campo: Conta Bancária / Caixa
+  observation?: string; 
   // Specific to Income
   clientId?: string;
   serviceType?: string;

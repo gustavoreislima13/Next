@@ -63,6 +63,21 @@ class DatabaseService {
     return !!((import.meta as any).env?.VITE_SUPABASE_URL && (import.meta as any).env?.VITE_SUPABASE_ANON_KEY);
   }
 
+  // Self-healing mechanism: If Supabase rejects the key, disable it and fallback to local
+  private handleSupabaseError(error: any): boolean {
+    // Convert to string to catch object-based errors
+    const msg = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
+    
+    // Check for specific API Key errors (invalid key, format, or unauthorized)
+    if (msg.includes('Invalid API key') || msg.includes('JWT') || msg.includes('service_role') || msg.includes('401') || msg.includes('403')) {
+        console.warn("Nexus DB: Supabase API Key rejected. Switching to Local Storage mode.");
+        this.useSupabase = false;
+        this.supabase = null;
+        return true; // Indicates we handled it by downgrading
+    }
+    return false;
+  }
+
   // Local Helpers
   private getLocal<T>(key: string, def: T): T {
     try { return JSON.parse(localStorage.getItem(key) || 'null') || def; } catch { return def; }
@@ -103,12 +118,17 @@ class DatabaseService {
     };
 
     if (this.useSupabase) {
-      // Assuming 'logs' table exists, otherwise fallback to local
       const { error } = await this.supabase!.from('logs').insert(log);
-      if (error) console.warn("Log Supabase failed, saving local"); // Fallback
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+           // If error was auth, just save locally below
+        } else {
+           // Silent fail for logs if it's just a network blip
+        }
+      }
     }
     
-    // Always keep a local copy for immediate display if needed, or if Supabase fails
+    // Always keep a local copy for immediate display if needed
     const list = this.getLocal<AuditLog[]>(KEYS.LOGS, []);
     list.unshift(log); // Prepend
     this.setLocal(KEYS.LOGS, list.slice(0, 100)); // Keep last 100 locally
@@ -117,7 +137,11 @@ class DatabaseService {
   async getLogs(): Promise<AuditLog[]> {
     if (this.useSupabase) {
        const { data, error } = await this.supabase!.from('logs').select('*').order('timestamp', { ascending: false }).limit(100);
-       if (!error && data) return data;
+       if (error) {
+         if (this.handleSupabaseError(error)) return this.getLogs(); // Retry locally
+         return this.getLocal(KEYS.LOGS, []);
+       }
+       return data || [];
     }
     return this.getLocal(KEYS.LOGS, []);
   }
@@ -126,13 +150,16 @@ class DatabaseService {
   async getUsers(): Promise<User[]> {
     if (this.useSupabase) {
       const { data, error } = await this.supabase!.from('users').select('*');
-      if (!error && data && data.length > 0) return data;
-      // If table empty or error, fallthrough to check default admin logic
+      if (error) {
+        if (this.handleSupabaseError(error)) return this.getUsers(); // Retry locally
+        // If not auth error, fall through to local default
+      } else if (data && data.length > 0) {
+        return data;
+      }
     }
     
     const localUsers = this.getLocal<User[]>(KEYS.USERS, []);
     if (localUsers.length === 0) {
-      // Ensure at least admin exists
       return [DEFAULT_ADMIN];
     }
     return localUsers;
@@ -141,7 +168,13 @@ class DatabaseService {
   async saveUser(user: User) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('users').upsert(user);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+           await this.saveUser(user); // Retry locally
+           return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       const list = await this.getUsers();
       const idx = list.findIndex(u => u.id === user.id);
@@ -156,7 +189,13 @@ class DatabaseService {
     
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('users').delete().eq('id', id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+           await this.deleteUser(id); // Retry locally
+           return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       const list = await this.getUsers();
       this.setLocal(KEYS.USERS, list.filter(u => u.id !== id));
@@ -188,14 +227,12 @@ class DatabaseService {
   getUserProfile() { return this.getLocal(KEYS.PROF, DEFAULT_PROFILE); }
   async saveUserProfile(p: UserProfile) { 
     this.setLocal(KEYS.PROF, p);
-    // Update session user as well if applicable
     const current = this.getCurrentUser();
     if (current) {
         current.name = p.name;
         current.role = p.role;
         current.avatarUrl = p.avatarUrl;
         sessionStorage.setItem(KEYS.SESSION, JSON.stringify(current));
-        // Also update the User Record
         await this.saveUser(current);
     }
   }
@@ -213,40 +250,39 @@ class DatabaseService {
   }
 
   // Clients
-  // UPDATED: Supports server-side pagination for 10k+ records
   async getClients(page: number = 1, pageSize: number = 50, search: string = ''): Promise<{ data: Client[], count: number }> {
     if (this.useSupabase) {
       let query = this.supabase!
         .from('clients')
-        .select('*', { count: 'exact' }); // Get total count for pagination
+        .select('*', { count: 'exact' }); 
 
       if (search) {
-        // Search in multiple fields
         query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,cpf.ilike.%${search}%,mobile.ilike.%${search}%`);
       }
 
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // Ensure consistent ordering so new clients appear at the top if sorting by created date (or name)
       const { data, error, count } = await query
-        .order('createdAt', { ascending: false }) // Newest first
+        .order('createdAt', { ascending: false }) 
         .range(from, to);
 
       if (error) { 
+        if (this.handleSupabaseError(error)) {
+            return this.getClients(page, pageSize, search); // Retry locally
+        }
         console.error('Supabase getClients error:', JSON.stringify(error)); 
         return { data: [], count: 0 }; 
       }
       return { data: data || [], count: count || 0 };
     }
     
-    // Local Fallback (Simulation of pagination)
+    // Local Fallback
     let all = this.getLocal<Client[]>(KEYS.CLIENTS, []);
     if (search) {
       const s = search.toLowerCase();
       all = all.filter(c => c.name.toLowerCase().includes(s) || c.cpf.includes(s) || c.email.toLowerCase().includes(s));
     }
-    // Sort locally by date descending
     all.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     
     const start = (page - 1) * pageSize;
@@ -259,16 +295,15 @@ class DatabaseService {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(c);
       if (error) {
-        // Fallback for missing columns (e.g. status, triageNotes)
+        if (this.handleSupabaseError(error)) {
+            await this.saveClient(c); // Retry locally
+            return;
+        }
         if (error.message?.includes('column') || error.message?.includes('status') || error.message?.includes('triageNotes')) {
            console.warn("Schema mismatch detected. Retrying without new fields.");
-           // Create a copy without the new fields
            const { status, triageNotes, ...legacy } = c;
            const { error: retryError } = await this.supabase!.from('clients').upsert(legacy);
-           
            if (retryError) throw new Error(retryError.message);
-           
-           // Throw specific error to inform UI about partial success
            throw new Error("PARTIAL_SUCCESS_MISSING_COLUMNS");
         }
         throw new Error(error.message);
@@ -281,10 +316,17 @@ class DatabaseService {
     }
     await this.logAction('update', 'Client', `Cliente ${c.name} ${isNew ? 'criado' : 'atualizado'}.`);
   }
+
   async bulkUpsertClients(cs: Client[]) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').upsert(cs);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+            await this.bulkUpsertClients(cs); // Retry locally
+            return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       const list = this.getLocal<Client[]>(KEYS.CLIENTS, []);
       const map = new Map(list.map(c => [c.id, c]));
@@ -293,10 +335,17 @@ class DatabaseService {
     }
     await this.logAction('create', 'Client', `Importação em massa: ${cs.length} clientes.`);
   }
+
   async deleteClient(id: string) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('clients').delete().eq('id', id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+            await this.deleteClient(id); // Retry locally
+            return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       this.setLocal(KEYS.CLIENTS, this.getLocal<Client[]>(KEYS.CLIENTS, []).filter(x => x.id !== id));
     }
@@ -306,19 +355,27 @@ class DatabaseService {
   // Transactions
   async getTransactions(): Promise<Transaction[]> {
     if (this.useSupabase) {
-      // NOTE: For very large transaction sets, this should also be paginated in future.
-      // Keeping it simple for now as requested focused on Clients.
-      const { data, error } = await this.supabase!.from('transactions').select('*').limit(2000); // Soft limit
-      if (error) { console.error('Supabase getTransactions error:', JSON.stringify(error)); return []; }
+      const { data, error } = await this.supabase!.from('transactions').select('*').limit(2000);
+      if (error) { 
+        if (this.handleSupabaseError(error)) {
+            return this.getTransactions(); // Retry locally
+        }
+        console.error('Supabase getTransactions error:', JSON.stringify(error)); 
+        return []; 
+      }
       return (data || []).map(t => ({ ...t, amount: Number(t.amount) }));
     }
     return this.getLocal(KEYS.TX, []);
   }
+
   async saveTransaction(t: Transaction) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('transactions').upsert(t);
       if (error) {
-        console.error("Save Tx Error:", JSON.stringify(error));
+        if (this.handleSupabaseError(error)) {
+            await this.saveTransaction(t); // Retry locally
+            return;
+        }
         if (error.message && (error.message.includes('attachmentIds') || error.message.includes('schema'))) {
           throw new Error("Erro de Banco de Dados: Colunas faltando (attachmentIds). Vá em Configurações > Integrações e execute o SQL de atualização.");
         }
@@ -332,10 +389,17 @@ class DatabaseService {
     }
     await this.logAction('update', 'Transaction', `${t.type === 'income' ? 'Receita' : 'Despesa'} de R$ ${t.amount} registrada.`);
   }
+
   async bulkUpsertTransactions(ts: Transaction[]) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('transactions').upsert(ts);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+            await this.bulkUpsertTransactions(ts); // Retry locally
+            return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       const list = this.getLocal<Transaction[]>(KEYS.TX, []);
       const map = new Map(list.map(t => [t.id, t]));
@@ -344,10 +408,17 @@ class DatabaseService {
     }
     await this.logAction('create', 'Transaction', `Importação em massa: ${ts.length} transações.`);
   }
+
   async deleteTransaction(id: string) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('transactions').delete().eq('id', id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) {
+            await this.deleteTransaction(id); // Retry locally
+            return;
+        }
+        throw new Error(error.message);
+      }
     } else {
       this.setLocal(KEYS.TX, this.getLocal<Transaction[]>(KEYS.TX, []).filter(x => x.id !== id));
     }
@@ -358,15 +429,22 @@ class DatabaseService {
   async getNotes(): Promise<StickyNote[]> {
     if (this.useSupabase) { 
       const { data, error } = await this.supabase!.from('notes').select('*'); 
-      if (error) return [];
+      if (error) {
+        if (this.handleSupabaseError(error)) return this.getNotes(); // Retry locally
+        return [];
+      }
       return data || []; 
     }
     return this.getLocal(KEYS.NOTES, []);
   }
+
   async saveNote(n: StickyNote) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('notes').upsert(n);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) { await this.saveNote(n); return; }
+        throw new Error(error.message);
+      }
     } else {
       const list = this.getLocal<StickyNote[]>(KEYS.NOTES, []);
       const idx = list.findIndex(x => x.id === n.id);
@@ -374,10 +452,14 @@ class DatabaseService {
       this.setLocal(KEYS.NOTES, list);
     }
   }
+
   async deleteNote(id: string) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('notes').delete().eq('id', id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) { await this.deleteNote(id); return; }
+        throw new Error(error.message);
+      }
     } else {
       this.setLocal(KEYS.NOTES, this.getLocal<StickyNote[]>(KEYS.NOTES, []).filter(x => x.id !== id));
     }
@@ -386,17 +468,21 @@ class DatabaseService {
   async getFiles(): Promise<StoredFile[]> {
     if (this.useSupabase) { 
       const { data, error } = await this.supabase!.from('files').select('*'); 
-      if (error) return [];
+      if (error) {
+        if (this.handleSupabaseError(error)) return this.getFiles(); // Retry locally
+        return [];
+      }
       return data || []; 
     }
     return this.getLocal(KEYS.FILES, []);
   }
+
   async addFile(f: StoredFile) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('files').upsert(f);
       if (error) {
-        console.error("Save File Error:", JSON.stringify(error));
-         if (error.message && (error.message.includes('associatedClient') || error.message.includes('schema'))) {
+        if (this.handleSupabaseError(error)) { await this.addFile(f); return; }
+        if (error.message && (error.message.includes('associatedClient') || error.message.includes('schema'))) {
           throw new Error("Erro de Banco de Dados: Coluna faltando (associatedClient). Vá em Configurações > Integrações e execute o SQL de atualização.");
         }
         throw new Error(error.message);
@@ -412,7 +498,10 @@ class DatabaseService {
   async updateFile(f: StoredFile) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('files').upsert(f);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) { await this.updateFile(f); return; }
+        throw new Error(error.message);
+      }
     } else {
       const list = this.getLocal<StoredFile[]>(KEYS.FILES, []);
       const idx = list.findIndex(x => x.id === f.id);
@@ -427,7 +516,10 @@ class DatabaseService {
   async deleteFile(id: string) {
     if (this.useSupabase) {
       const { error } = await this.supabase!.from('files').delete().eq('id', id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (this.handleSupabaseError(error)) { await this.deleteFile(id); return; }
+        throw new Error(error.message);
+      }
     } else {
       this.setLocal(KEYS.FILES, this.getLocal<StoredFile[]>(KEYS.FILES, []).filter(x => x.id !== id));
     }
@@ -438,7 +530,6 @@ class DatabaseService {
   async searchGlobal(q: string, target: 'clients' | 'transactions') {
     const term = q.toLowerCase();
     if (target === 'clients') {
-      // Use efficient search for clients
       const { data } = await this.getClients(1, 20, q);
       return data;
     }
@@ -448,7 +539,6 @@ class DatabaseService {
 
   async getFinancialMetrics(startDate: string, endDate: string) {
     const txs = await this.getTransactions();
-    // Filter
     const filtered = txs.filter(t => t.date >= startDate && t.date <= endDate);
     
     const income = filtered.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
@@ -460,12 +550,11 @@ class DatabaseService {
       totalExpense: expense,
       balance: income - expense,
       transactionCount: filtered.length,
-      details: filtered.slice(0, 10) // Limit details for token context
+      details: filtered.slice(0, 10)
     };
   }
 
   async getFullContext() {
-    // Optimized context fetch: Only get count of clients, not full list
     const { count: clientCount } = await this.getClients(1, 1);
     const txs = await this.getTransactions();
     return {

@@ -66,7 +66,8 @@ const addTransactionTool: FunctionDeclaration = {
       amount: { type: Type.NUMBER, description: 'Valor em reais (ex: 150.00)' },
       category: { type: Type.STRING, description: 'Categoria financeira' },
       entity: { type: Type.STRING, description: 'Empresa vinculada (ex: CMG)' },
-      date: { type: Type.STRING, description: 'Data da transação (YYYY-MM-DD)' }
+      date: { type: Type.STRING, description: 'Data da transação (YYYY-MM-DD)' },
+      account: { type: Type.STRING, description: 'Conta bancária ou caixa usado (ex: Banco do Brasil, Nubank)' }
     },
     required: ['type', 'description', 'amount']
   }
@@ -167,18 +168,22 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
 
   // Context Preparation
   const context = await db.getFullContext();
+  const bankAccounts = context.settings.banks.join(', ');
+  
   const systemInstruction = `
     Você é o Nexus AI, um assistente de Business Intelligence.
     Data de Hoje: ${new Date().toISOString().split('T')[0]}.
     Contexto Geral: ${JSON.stringify(context.summary)}
+    Contas Bancárias da Empresa: ${bankAccounts || 'Não especificadas'}.
     
     Instruções:
     1. Responda em Português do Brasil de forma profissional e direta.
     2. Para perguntas sobre valores totais em períodos (ex: "Quanto faturei mês passado?"), USE a ferramenta 'get_financial_metrics'. Não tente adivinhar.
     3. Para criar dados, use 'add_client' ou 'add_transaction'.
-    4. Se identificar novos Tipos de Serviço em documentos ou descrições, use 'add_service_type' para cadastrá-los nas configurações.
-    5. Se houver imagens/PDFs, analise-os para extrair dados ou responder perguntas sobre eles.
-    6. Se o usuário perguntar "Como está minha empresa?", use os dados de resumo e sugira ver detalhes financeiros.
+    4. Se o usuário enviar um comprovante ou texto financeiro, TENTE IDENTIFICAR A CONTA BANCÁRIA usada com base na lista de 'Contas Bancárias da Empresa' e inclua no campo 'account'.
+    5. Se identificar novos Tipos de Serviço em documentos ou descrições, use 'add_service_type' para cadastrá-los nas configurações.
+    6. Se houver imagens/PDFs, analise-os para extrair dados ou responder perguntas sobre eles.
+    7. Se o usuário perguntar "Como está minha empresa?", use os dados de resumo e sugira ver detalhes financeiros.
   `;
 
   if (!config.thinkingConfig) {
@@ -231,7 +236,8 @@ export const generateBusinessInsight = async (options: AIRequestOptions | string
               description: args.description,
               amount: Number(args.amount),
               category: args.category || 'Geral',
-              entity: args.entity || 'Geral'
+              entity: args.entity || 'Geral',
+              account: args.account || ''
             };
             await db.saveTransaction(tx);
             result = { success: true, id: tx.id, message: "Transação salva." };

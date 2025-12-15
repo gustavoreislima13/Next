@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown, Calendar } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown, Calendar, Wallet } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
 
 export const Finance: React.FC = () => {
@@ -43,7 +43,7 @@ export const Finance: React.FC = () => {
   // Forms
   const [formData, setFormData] = useState<Partial<Transaction>>({
     description: '', amount: 0, date: new Date().toISOString().split('T')[0],
-    entity: '', category: '', observation: ''
+    entity: '', category: '', observation: '', account: ''
   });
   const [newClientData, setNewClientData] = useState({ name: '', cpf: '', mobile: '', email: '' });
 
@@ -64,10 +64,12 @@ export const Finance: React.FC = () => {
     setTransactions(txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     setClients(cls.data);
     setSettings(sett);
-    // Initialize entity default
-    if (!formData.entity && sett.entities.length > 0) {
-      setFormData(prev => ({ ...prev, entity: sett.entities[0] }));
-    }
+    // Initialize defaults
+    setFormData(prev => ({ 
+      ...prev, 
+      entity: prev.entity || sett.entities[0] || '',
+      account: prev.account || sett.banks[0] || ''
+    }));
     setLoading(false);
   };
 
@@ -139,6 +141,7 @@ export const Finance: React.FC = () => {
         date: formData.date!,
         entity: formData.entity || settings.entities[0] || 'Geral',
         category: formData.category || 'Outros',
+        account: formData.account, // New field
         observation: formData.observation,
         attachmentIds: finalAttachmentIds,
         clientId: txType === 'income' ? clientId : undefined,
@@ -173,6 +176,7 @@ export const Finance: React.FC = () => {
       date: t.date,
       entity: t.entity,
       category: t.category,
+      account: t.account,
       observation: t.observation || '',
       clientId: t.clientId,
       serviceType: t.serviceType,
@@ -192,7 +196,7 @@ export const Finance: React.FC = () => {
     setNewClientData({ name: '', cpf: '', mobile: '', email: '' });
     setFormData({
       description: '', amount: 0, date: new Date().toISOString().split('T')[0],
-      entity: settings.entities[0] || '', category: '', observation: ''
+      entity: settings.entities[0] || '', category: '', account: settings.banks[0] || '', observation: ''
     });
   };
 
@@ -212,7 +216,8 @@ export const Finance: React.FC = () => {
   const filteredTxs = transactions.filter(t => {
     const s = searchTerm.toLowerCase();
     const matchesSearch = t.description.toLowerCase().includes(s) || 
-                          (t.type === 'income' && clients.find(c => c.id === t.clientId)?.name.toLowerCase().includes(s));
+                          (t.type === 'income' && clients.find(c => c.id === t.clientId)?.name.toLowerCase().includes(s)) ||
+                          (t.account?.toLowerCase().includes(s));
     
     // Check all filters
     const matchesType = filterType === 'all' || t.type === filterType;
@@ -387,6 +392,7 @@ export const Finance: React.FC = () => {
                    </div>
                    <div className="text-xs text-slate-400 dark:text-slate-500">
                      {t.category} • {t.type === 'income' ? clients.find(c => c.id === t.clientId)?.name || 'Cliente N/D' : t.supplier}
+                     {t.account && <span className="ml-2 text-slate-500 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-800 px-1.5 rounded">@{t.account}</span>}
                    </div>
                  </td>
                  <td className="px-4 py-3"><span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{t.entity}</span></td>
@@ -435,6 +441,13 @@ export const Finance: React.FC = () => {
                  <input required type="date" className="w-full border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-blue-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
                </div>
                
+               <div>
+                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Conta / Canal</label>
+                 <select className="w-full border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={formData.account} onChange={e => setFormData({...formData, account: e.target.value})}>
+                   <option value="">Selecione</option>
+                   {settings.banks.map(b => <option key={b} value={b}>{b}</option>)}
+                 </select>
+               </div>
                <div>
                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Categoria</label>
                  <select className="w-full border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
