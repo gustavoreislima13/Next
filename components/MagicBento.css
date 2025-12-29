@@ -1,0 +1,120 @@
+:root {
+  --hue: 27;
+  --sat: 69%;
+  --white: hsl(0, 0%, 100%);
+  --purple-primary: rgba(132, 0, 255, 1);
+  --purple-glow: rgba(132, 0, 255, 0.2);
+  --purple-border: rgba(132, 0, 255, 0.8);
+  --border-color: #392e4e;
+  --background-dark: #060010;
+}
+
+/* Base class for the card to receive effects */
+.magic-bento-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.1s ease; /* Fast transition for tilt */
+  will-change: transform;
+  
+  /* Layout fundamentals for responsiveness */
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 400px;
+  --glow-color: 59, 130, 246; /* Default Blue for Dashboard */
+}
+
+/* Desktop Hover Effects */
+@media (hover: hover) {
+  .magic-bento-card:hover {
+    z-index: 10;
+  }
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  .magic-bento-card {
+    --glow-radius: 200px; /* Reduce glow size on mobile */
+    min-height: auto; /* Allow content to dictate height */
+  }
+}
+
+/* Border glow effect - using ::after to overlay */
+.magic-bento-card--border-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px; /* Border thickness */
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(var(--glow-color), calc(var(--glow-intensity) * 0.5)) 0%,
+    rgba(var(--glow-color), 0) 60%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 1;
+  border-radius: inherit;
+  z-index: 20;
+}
+
+/* Spotlight Effect on Background - using ::before */
+.magic-bento-card--spotlight::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(var(--glow-color), calc(var(--glow-intensity) * 0.1)) 0%,
+    rgba(var(--glow-color), 0) 50%
+  );
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.particle-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.particle {
+  pointer-events: none;
+  position: absolute;
+  border-radius: 50%;
+  z-index: 30;
+}
+
+/* Global spotlight element */
+.global-spotlight {
+  mix-blend-mode: screen; /* Blend nicely with dark/light modes */
+  will-change: transform, opacity;
+  z-index: 50 !important;
+  pointer-events: none;
+}
+
+/* Ensure content stays above effects */
+.magic-bento-card > * {
+  position: relative;
+  z-index: 2;
+  flex: 1; /* Allow content to fill space */
+}
+
+.bento-section {
+  position: relative;
+  width: 100%;
+  /* Optional: Add a default grid if no classes provided, but respect external styling */
+}

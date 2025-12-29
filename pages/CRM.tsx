@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
+import { sendWhatsAppMessage, TEMPLATES } from '../services/whatsappService';
 import { Client, Transaction, StoredFile } from '../types';
-import { Search, Plus, Trash2, Edit2, Phone, Mail, Calendar, RefreshCw, AlertTriangle, FileText, Wallet, ClipboardList, ExternalLink, ArrowUpRight, FolderOpen, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Trash2, Edit2, Phone, Mail, Calendar, RefreshCw, AlertTriangle, FileText, Wallet, ClipboardList, ExternalLink, ArrowUpRight, FolderOpen, Save, X, ChevronLeft, ChevronRight, Bot, MessageCircle, Send } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
+import { useNavigate } from 'react-router-dom';
 
 type Tab = 'details' | 'triage' | 'financial' | 'files';
 
 export const CRM: React.FC = () => {
   const { addToast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<Client[]>([]);
   
@@ -15,10 +18,9 @@ export const CRM: React.FC = () => {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalClients, setTotalClients] = useState(0);
-  const pageSize = 50; // Increased page size for better overview
+  const pageSize = 50; 
   
-  // Debounce ref
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Selection & Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -53,18 +55,16 @@ export const CRM: React.FC = () => {
     };
   }, []);
 
-  // Handle Search Input with Debounce
   const handleSearchChange = (val: string) => {
     setSearch(val);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     
     searchTimeoutRef.current = setTimeout(() => {
-      setCurrentPage(1); // Reset to page 1 on search
+      setCurrentPage(1); 
       refreshClients(1, val);
-    }, 500); // 500ms delay
+    }, 500); 
   };
 
-  // Handle Page Change
   const changePage = (newPage: number) => {
     if (newPage < 1 || newPage > Math.ceil(totalClients / pageSize)) return;
     setCurrentPage(newPage);
@@ -86,15 +86,13 @@ export const CRM: React.FC = () => {
   };
 
   const loadAssociatedData = async (clientId: string) => {
-    // Note: In a real app with 10k clients, transactions should also be paginated via API
-    // For now we keep filtering local transactions but optimized DB would use a join or where clause
     const [txs, files] = await Promise.all([db.getTransactions(), db.getFiles()]);
     setClientTransactions(txs.filter(t => t.clientId === clientId).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     setClientFiles(files.filter(f => f.associatedClient === clientId));
   };
 
   const openModal = async (client?: Client) => {
-    setActiveTab('details'); // Reset to first tab
+    setActiveTab('details'); 
     if (client) {
       setEditingClient(client);
       setFormData({ 
@@ -150,11 +148,9 @@ export const CRM: React.FC = () => {
       addToast(`Cliente ${editingClient ? 'atualizado' : 'cadastrado'} com sucesso!`, 'success');
       
       if (editingClient) {
-          // If editing, just update state loosely or refresh
           setEditingClient(newClient);
           refreshClients(currentPage, search);
       } else {
-          // If NEW client, reset search and jump to page 1 to ensure it appears at top
           setSearch('');
           setCurrentPage(1);
           closeModal();
@@ -163,8 +159,6 @@ export const CRM: React.FC = () => {
     } catch (error: any) {
       console.error(error);
       const msg = error.message || 'Erro desconhecido';
-      
-      // Handle Partial Success (Recovered from schema error)
       if (msg === 'PARTIAL_SUCCESS_MISSING_COLUMNS') {
          addToast('Cliente salvo, mas os dados de triagem não foram persistidos pois o banco precisa ser atualizado (Configurações > Integrações).', 'info');
          if (!editingClient) {
@@ -175,8 +169,6 @@ export const CRM: React.FC = () => {
          }
          return;
       }
-
-      // Helpful hint for Supabase users
       if (msg.includes('status') || msg.includes('triageNotes')) {
          addToast('Erro de Banco de Dados: Colunas novas faltando. Vá em Configurações > Integrações e execute o SQL.', 'error');
       } else {
@@ -194,31 +186,73 @@ export const CRM: React.FC = () => {
       await db.deleteClient(deleteConfirmation.id);
       addToast('Cliente excluído.', 'info');
       setDeleteConfirmation({ isOpen: false, id: null });
-      // Refresh current page
       refreshClients(currentPage, search);
     }
   };
 
   const openGoogleCalendar = () => {
     if (!formData.name) return;
-    
-    // Construct Google Calendar Link
     const title = encodeURIComponent(`Reunião com ${formData.name}`);
     const details = encodeURIComponent(`Cliente: ${formData.name}\nContato: ${formData.mobile}\nNota de Triagem: ${formData.triageNotes}`);
     const emails = formData.email ? `&add=${formData.email}` : '';
-    
     let dates = '';
     if (scheduleDate) {
-        // Format YYYYMMDDTHHMMSSZ
         const start = new Date(`${scheduleDate}T${scheduleTime || '09:00'}:00`);
-        const end = new Date(start.getTime() + 60 * 60 * 1000); // 1 hour duration
-        
+        const end = new Date(start.getTime() + 60 * 60 * 1000); 
         const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
         dates = `&dates=${fmt(start)}/${fmt(end)}`;
     }
-
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}${emails}${dates}`;
     window.open(url, '_blank');
+  };
+
+  const handleWhatsApp = async (type: 'reminder' | 'collection' | 'custom') => {
+    if (!formData.mobile) {
+      addToast('Cliente sem telefone cadastrado.', 'error');
+      return;
+    }
+
+    let message = '';
+    if (type === 'reminder') {
+      if (!scheduleDate) {
+        addToast('Defina uma data de agendamento primeiro.', 'warning');
+        return;
+      }
+      message = TEMPLATES.reminder
+        .replace('{{name}}', formData.name || 'Cliente')
+        .replace('{{date}}', new Date(scheduleDate).toLocaleDateString())
+        .replace('{{time}}', scheduleTime || 'horário marcado');
+    } else if (type === 'collection') {
+      message = TEMPLATES.collection
+        .replace('{{name}}', formData.name || 'Cliente')
+        .replace('{{amount}}', '...'); // User should fill
+    }
+
+    if (type === 'custom') {
+       // Just open with empty message
+       message = '';
+    }
+
+    try {
+      await sendWhatsAppMessage(formData.mobile, message);
+      addToast('WhatsApp iniciado.', 'success');
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
+  };
+
+  const handleAskAI = () => {
+     if (!formData.name) return;
+     const contextPrompt = `Analise o perfil e histórico do cliente "${formData.name}".
+     
+     Status: ${formData.status}
+     Email: ${formData.email}
+     Notas de Triagem: ${formData.triageNotes}
+     Total Gasto: R$ ${clientTransactions.filter(t => t.type === 'income').reduce((a,b) => a+b.amount, 0).toFixed(2)}
+     
+     Me dê insights sobre como melhorar o relacionamento com este cliente.`;
+     
+     navigate('/ia', { state: { prompt: contextPrompt } });
   };
 
   const getStatusColor = (status?: string) => {
@@ -266,9 +300,9 @@ export const CRM: React.FC = () => {
       </div>
 
       {/* Clients Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {clients.map((client) => (
-          <div key={client.id} onClick={() => openModal(client)} className="group bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all cursor-pointer relative">
+          <div key={client.id} onClick={() => openModal(client)} className="group bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-700 transition-all cursor-pointer relative">
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-lg border border-blue-100 dark:border-blue-800">
@@ -354,9 +388,19 @@ export const CRM: React.FC = () => {
                    </p>
                  </div>
                </div>
-               <button onClick={closeModal} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors">
-                 <X size={24} className="text-slate-500" />
-               </button>
+               <div className="flex items-center gap-2">
+                 {editingClient && (
+                    <button 
+                      onClick={handleAskAI}
+                      className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border border-purple-200 dark:border-purple-800"
+                    >
+                       <Bot size={16} /> Consultar I.A.
+                    </button>
+                 )}
+                 <button onClick={closeModal} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors">
+                   <X size={24} className="text-slate-500" />
+                 </button>
+               </div>
             </div>
 
             {/* Tabs */}
@@ -458,21 +502,44 @@ export const CRM: React.FC = () => {
                            <h3>Agendar Reunião</h3>
                          </div>
                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                           Selecione data e hora para criar um evento no Google Calendar com os dados deste cliente.
+                           Selecione data e hora para criar um evento ou enviar lembrete.
                          </p>
                          <div className="space-y-3 mb-4">
                            <input type="date" className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} />
                            <input type="time" className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-950 text-slate-900 dark:text-white" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
                          </div>
-                         <button 
-                           onClick={openGoogleCalendar}
-                           className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-2 shadow-sm"
-                         >
-                           <ExternalLink size={16} /> Abrir Google Calendar
-                         </button>
+                         <div className="grid grid-cols-2 gap-2">
+                            <button 
+                              onClick={openGoogleCalendar}
+                              className="bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-1 shadow-sm text-sm"
+                            >
+                              <ExternalLink size={14} /> Calendar
+                            </button>
+                            <button 
+                              onClick={() => handleWhatsApp('reminder')}
+                              className="bg-emerald-600 text-white py-2 rounded-lg font-bold hover:bg-emerald-700 flex items-center justify-center gap-1 shadow-sm text-sm"
+                            >
+                              <MessageCircle size={14} /> Lembrete Zap
+                            </button>
+                         </div>
                       </div>
                       
-                      <div className="flex justify-end">
+                      {/* WhatsApp Actions */}
+                      <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                         <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2"><MessageCircle size={16}/> Ações WhatsApp</h4>
+                         <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => handleWhatsApp('collection')} className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors group">
+                               <Wallet className="text-slate-400 group-hover:text-emerald-500 mb-1" size={20} />
+                               <span className="text-xs font-bold text-slate-600 dark:text-slate-400 group-hover:text-emerald-500">Cobrança</span>
+                            </button>
+                            <button onClick={() => handleWhatsApp('custom')} className="flex flex-col items-center justify-center p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg hover:border-emerald-500 transition-colors group">
+                               <Send className="text-slate-400 group-hover:text-emerald-500 mb-1" size={20} />
+                               <span className="text-xs font-bold text-slate-600 dark:text-slate-400 group-hover:text-emerald-500">Mensagem</span>
+                            </button>
+                         </div>
+                      </div>
+
+                      <div className="flex justify-end mt-4">
                          <button onClick={handleSave} className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-3 rounded-xl font-bold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg">
                            <Save size={18} /> Salvar Triagem
                          </button>

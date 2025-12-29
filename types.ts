@@ -91,6 +91,9 @@ export interface AppSettings {
   geminiApiKey?: string;
   supabaseUrl?: string;
   supabaseKey?: string;
+  // WhatsApp Configuration
+  whatsappApiUrl?: string; // Ex: https://api.z-api.io/...
+  whatsappApiToken?: string;
 }
 
 export interface PricingData {

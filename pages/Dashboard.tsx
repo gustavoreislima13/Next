@@ -8,28 +8,42 @@ import {
 import { ArrowUpRight, ArrowDownRight, Users, Target, DollarSign, Activity, RefreshCw, TrendingUp, PieChart as PieChartIcon, Award, CloudOff } from 'lucide-react';
 import { useTheme } from '../components/ThemeContext';
 import { Link } from 'react-router-dom';
+import CountUp from '../components/CountUp';
+import TextType from '../components/TextType';
+import TiltedCard from '../components/TiltedCard';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
 const Card = ({ title, value, subValue, icon: Icon, trend, trendValue, color }: any) => (
-  <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md">
-    <div className="flex justify-between items-start mb-4">
-      <div className={`p-3 rounded-lg ${color} bg-opacity-10 dark:bg-opacity-20 text-${color.split('-')[1]}-600 dark:text-${color.split('-')[1]}-400`}>
-        <Icon size={24} className={`text-${color.split('-')[1]}-600 dark:text-${color.split('-')[1]}-400`} />
-      </div>
-      {trend && (
-        <div className={`flex flex-col items-end`}>
-             <div className={`flex items-center gap-1 text-xs font-bold ${trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : trend === 'down' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}`}>
-                {trend === 'up' ? <ArrowUpRight size={14} /> : trend === 'down' ? <ArrowDownRight size={14} /> : null}
-                {trendValue}
-             </div>
-             {subValue && <span className="text-[10px] text-slate-400 mt-0.5">{subValue}</span>}
+  <TiltedCard 
+    containerHeight="100%" 
+    containerWidth="100%" 
+    scaleOnHover={1.03}
+    rotateAmplitude={10}
+    showMobileWarning={false}
+    showTooltip={false}
+  >
+    <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl shadow-sm transition-all duration-300 h-full flex flex-col justify-between border border-slate-100 dark:border-slate-800">
+      <div className="flex justify-between items-start mb-3 sm:mb-4">
+        <div className={`p-3 rounded-lg ${color} bg-opacity-10 dark:bg-opacity-20 text-${color.split('-')[1]}-600 dark:text-${color.split('-')[1]}-400`}>
+          <Icon size={24} className={`text-${color.split('-')[1]}-600 dark:text-${color.split('-')[1]}-400`} />
         </div>
-      )}
+        {trend && (
+          <div className={`flex flex-col items-end`}>
+              <div className={`flex items-center gap-1 text-xs font-bold ${trend === 'up' ? 'text-emerald-600 dark:text-emerald-400' : trend === 'down' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'}`}>
+                  {trend === 'up' ? <ArrowUpRight size={14} /> : trend === 'down' ? <ArrowDownRight size={14} /> : null}
+                  {trendValue}
+              </div>
+              {subValue && <span className="text-[10px] text-slate-400 mt-0.5">{subValue}</span>}
+          </div>
+        )}
+      </div>
+      <div>
+        <h3 className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium mb-1">{title}</h3>
+        <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">{value}</div>
+      </div>
     </div>
-    <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium mb-1">{title}</h3>
-    <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
-  </div>
+  </TiltedCard>
 );
 
 type RangeMode = 'week' | 'month' | 'all' | 'custom';
@@ -198,19 +212,26 @@ export const Dashboard: React.FC = () => {
       {/* Header & Controls */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            Business Intelligence
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 h-10">
+            <TextType 
+              text={["Business Intelligence", "Visão Estratégica", "Gestão Inteligente"]} 
+              typingSpeed={100}
+              deletingSpeed={50}
+              pauseDuration={3000}
+              loop={true}
+              cursorCharacter="|"
+            />
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm">Visão 360º da saúde financeira e comercial.</p>
         </div>
         
-        <div className="bg-white dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-2">
-          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-md">
+        <div className="bg-white dark:bg-slate-900 p-1 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-2 w-full lg:w-auto">
+          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-md overflow-x-auto">
              {['week', 'month', 'all', 'custom'].map(m => (
                <button 
                  key={m}
                  onClick={() => setRangeMode(m as RangeMode)} 
-                 className={`px-3 py-1.5 text-xs font-bold uppercase rounded transition-all ${rangeMode === m ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                 className={`px-3 py-1.5 text-xs font-bold uppercase rounded transition-all whitespace-nowrap flex-1 md:flex-none ${rangeMode === m ? 'bg-white dark:bg-slate-700 shadow text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                >
                  {m === 'all' ? 'Tudo' : m === 'week' ? 'Semana' : m === 'month' ? 'Mês' : 'Personalizado'}
                </button>
@@ -219,13 +240,13 @@ export const Dashboard: React.FC = () => {
           
           {rangeMode === 'custom' && (
              <div className="flex items-center gap-2 px-2 animate-fade-in text-slate-900 dark:text-white">
-               <input type="date" className="text-xs border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none bg-transparent" value={customRange.start} onChange={e => setCustomRange({...customRange, start: e.target.value})} />
+               <input type="date" className="text-xs border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none bg-transparent max-w-[110px]" value={customRange.start} onChange={e => setCustomRange({...customRange, start: e.target.value})} />
                <span className="text-slate-400">-</span>
-               <input type="date" className="text-xs border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none bg-transparent" value={customRange.end} onChange={e => setCustomRange({...customRange, end: e.target.value})} />
+               <input type="date" className="text-xs border border-slate-200 dark:border-slate-700 rounded px-2 py-1 outline-none bg-transparent max-w-[110px]" value={customRange.end} onChange={e => setCustomRange({...customRange, end: e.target.value})} />
              </div>
           )}
           
-          <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 transition-colors border-l border-slate-200 dark:border-slate-800 pl-3 ml-1" title="Atualizar Dados">
+          <button onClick={fetchData} className="p-2 text-slate-400 hover:text-blue-600 transition-colors border-l border-slate-200 dark:border-slate-800 pl-3 ml-1 hidden md:block" title="Atualizar Dados">
             <RefreshCw size={18} />
           </button>
         </div>
@@ -249,11 +270,11 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <Card 
           title="Faturamento" 
-          value={`R$ ${filteredData.income.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-          subValue={`Ticket Médio: R$ ${filteredData.ticket.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={<div className="flex gap-1">R$ <CountUp to={filteredData.income} decimals={2} /></div>}
+          subValue={<div className="flex gap-1">Ticket Médio: R$ <CountUp to={filteredData.ticket} decimals={2} /></div>}
           icon={DollarSign}
           trend="up"
           trendValue="Período"
@@ -261,7 +282,7 @@ export const Dashboard: React.FC = () => {
         />
         <Card 
           title="Despesas" 
-          value={`R$ ${filteredData.expenses.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={<div className="flex gap-1">R$ <CountUp to={filteredData.expenses} decimals={2} /></div>}
           icon={Activity}
           trend={filteredData.expenses > 0 ? "down" : "neutral"}
           trendValue="Período"
@@ -269,7 +290,7 @@ export const Dashboard: React.FC = () => {
         />
         <Card 
           title="Lucro Líquido" 
-          value={`R$ ${filteredData.profit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          value={<div className="flex gap-1">R$ <CountUp to={filteredData.profit} decimals={2} /></div>}
           subValue={`Margem: ${((filteredData.profit / (filteredData.income || 1)) * 100).toFixed(1)}%`}
           icon={Target}
           trend={filteredData.profit >= 0 ? 'up' : 'down'}
@@ -278,7 +299,7 @@ export const Dashboard: React.FC = () => {
         />
         <Card 
           title="Base de Clientes" 
-          value={clients.length}
+          value={<CountUp to={clients.length} decimals={0} />}
           subValue={filteredData.newClients > 0 ? `+${filteredData.newClients} novos no período` : 'Sem novos cadastros'}
           icon={Users}
           trend={filteredData.newClients > 0 ? 'up' : 'neutral'}
@@ -288,126 +309,163 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Row 2: Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[400px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 min-h-[400px]">
         {/* Main Chart */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-            <TrendingUp size={20} className="text-blue-500" /> Fluxo de Caixa
-          </h3>
-          <div className="flex-1 min-h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#e2e8f0'} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tickFormatter={(val) => `R$${val/1000}k`} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
-                <Tooltip 
-                  cursor={{fill: theme === 'dark' ? '#1e293b' : '#f1f5f9'}}
-                  formatter={(value: number) => [`R$ ${value.toLocaleString('pt-BR')}`, '']}
-                  contentStyle={{ 
-                    borderRadius: '8px', 
-                    border: 'none', 
-                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                    backgroundColor: theme === 'dark' ? '#0f172a' : '#fff',
-                    color: theme === 'dark' ? '#f1f5f9' : '#0f172a'
-                  }}
-                  labelStyle={{ color: theme === 'dark' ? '#94a3b8' : '#64748b', marginBottom: '0.5rem' }}
-                />
-                <Bar dataKey="rec" name="Receita" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={50} />
-                <Bar dataKey="desp" name="Despesa" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={50} />
-              </BarChart>
-            </ResponsiveContainer>
+        <TiltedCard 
+          className="lg:col-span-2" 
+          containerHeight="100%" 
+          containerWidth="100%"
+          scaleOnHover={1.01}
+          rotateAmplitude={6}
+          showMobileWarning={false}
+          showTooltip={false}
+        >
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-full">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
+              <TrendingUp size={20} className="text-blue-500" /> Fluxo de Caixa
+            </h3>
+            <div className="flex-1 min-h-[250px] sm:min-h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#e2e8f0'} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tickFormatter={(val) => `R$${val/1000}k`} tick={{ fill: theme === 'dark' ? '#94a3b8' : '#64748b', fontSize: 12 }} />
+                  <Tooltip 
+                    cursor={{fill: theme === 'dark' ? '#1e293b' : '#f1f5f9'}}
+                    formatter={(value: number) => [`R$ ${value.toLocaleString('pt-BR')}`, '']}
+                    contentStyle={{ 
+                      borderRadius: '8px', 
+                      border: 'none', 
+                      boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                      backgroundColor: theme === 'dark' ? '#0f172a' : '#fff',
+                      color: theme === 'dark' ? '#f1f5f9' : '#0f172a'
+                    }}
+                    labelStyle={{ color: theme === 'dark' ? '#94a3b8' : '#64748b', marginBottom: '0.5rem' }}
+                  />
+                  <Bar dataKey="rec" name="Receita" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                  <Bar dataKey="desp" name="Despesa" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={50} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        </TiltedCard>
 
         {/* Expense Breakdown */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
-            <PieChartIcon size={20} className="text-rose-500" /> Despesas por Categoria
-          </h3>
-          <div className="flex-1 min-h-[300px] relative">
-             <ResponsiveContainer width="100%" height="100%">
-               <PieChart>
-                 <Pie
-                   data={filteredData.expenseByCategory}
-                   cx="50%"
-                   cy="50%"
-                   innerRadius={60}
-                   outerRadius={80}
-                   paddingAngle={5}
-                   dataKey="value"
-                 >
-                   {filteredData.expenseByCategory.map((entry, index) => (
-                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke={theme === 'dark' ? '#0f172a' : '#fff'} strokeWidth={2} />
-                   ))}
-                 </Pie>
-                 <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', color: theme === 'dark' ? '#fff' : '#000' }} />
-                 <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-               </PieChart>
-             </ResponsiveContainer>
-             {filteredData.expenseByCategory.length === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">
-                  Sem despesas no período.
-                </div>
-             )}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3: Top Clients & Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-             <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-               <Award size={20} className="text-yellow-500" /> Top Clientes (Receita)
-             </h3>
-             <div className="space-y-4">
-               {filteredData.topClients.map((client, idx) => (
-                 <div key={idx} className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-3">
-                       <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
-                         {idx + 1}
-                       </div>
-                       <div>
-                         <p className="text-sm font-bold text-slate-900 dark:text-white">{client.name}</p>
-                         <p className="text-xs text-slate-500 dark:text-slate-400">Contribuição no período</p>
-                       </div>
-                    </div>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
-                      R$ {client.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </span>
-                 </div>
-               ))}
-               {filteredData.topClients.length === 0 && (
-                  <p className="text-center text-sm text-slate-400 py-8">Nenhuma receita vinculada a clientes no período.</p>
-               )}
-             </div>
-          </div>
-
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-               <Activity size={20} className="text-slate-500" /> Últimas Transações
+        <TiltedCard 
+          containerHeight="100%" 
+          containerWidth="100%"
+          scaleOnHover={1.01}
+          rotateAmplitude={6}
+          showMobileWarning={false}
+          showTooltip={false}
+        >
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-full">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2">
+              <PieChartIcon size={20} className="text-rose-500" /> Despesas por Categoria
             </h3>
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {filteredData.txs.slice(0, 6).map((t) => (
-                <div key={t.id} className="flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 p-2 rounded-lg transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${t.type === 'income' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
-                      {t.type === 'income' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 line-clamp-1">{t.description}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(t.date).toLocaleDateString()} • {t.category}</p>
-                    </div>
+            <div className="flex-1 min-h-[250px] sm:min-h-[300px] relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={filteredData.expenseByCategory}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {filteredData.expenseByCategory.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke={theme === 'dark' ? '#0f172a' : '#fff'} strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => `R$ ${value.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`} contentStyle={{ backgroundColor: theme === 'dark' ? '#0f172a' : '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', color: theme === 'dark' ? '#fff' : '#000' }} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              {filteredData.expenseByCategory.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">
+                    Sem despesas no período.
                   </div>
-                  <span className={`text-sm font-semibold ${t.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                    {t.type === 'income' ? '+' : '-'} R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              ))}
-              {filteredData.txs.length === 0 && (
-                <p className="text-sm text-slate-400 text-center py-4">Nenhuma transação neste período.</p>
               )}
             </div>
           </div>
+        </TiltedCard>
+      </div>
+
+      {/* Row 3: Top Clients & Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          <TiltedCard 
+            containerHeight="100%" 
+            containerWidth="100%"
+            scaleOnHover={1.01}
+            rotateAmplitude={6}
+            showMobileWarning={false}
+            showTooltip={false}
+          >
+            <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm h-full">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                <Award size={20} className="text-yellow-500" /> Top Clientes (Receita)
+              </h3>
+              <div className="space-y-4">
+                {filteredData.topClients.map((client, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors border border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${idx === 0 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                          {idx + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{client.name}</p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Contribuição no período</p>
+                        </div>
+                      </div>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                        R$ {client.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                  </div>
+                ))}
+                {filteredData.topClients.length === 0 && (
+                    <p className="text-center text-sm text-slate-400 py-8">Nenhuma receita vinculada a clientes no período.</p>
+                )}
+              </div>
+            </div>
+          </TiltedCard>
+
+          <TiltedCard 
+            containerHeight="100%" 
+            containerWidth="100%"
+            scaleOnHover={1.01}
+            rotateAmplitude={6}
+            showMobileWarning={false}
+            showTooltip={false}
+          >
+            <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm h-full">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                <Activity size={20} className="text-slate-500" /> Últimas Transações
+              </h3>
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                {filteredData.txs.slice(0, 6).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800 p-2 rounded-lg transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${t.type === 'income' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400'}`}>
+                        {t.type === 'income' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100 line-clamp-1">{t.description}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{new Date(t.date).toLocaleDateString()} • {t.category}</p>
+                      </div>
+                    </div>
+                    <span className={`text-sm font-semibold ${t.type === 'income' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                      {t.type === 'income' ? '+' : '-'} R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ))}
+                {filteredData.txs.length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-4">Nenhuma transação neste período.</p>
+                )}
+              </div>
+            </div>
+          </TiltedCard>
       </div>
     </div>
   );

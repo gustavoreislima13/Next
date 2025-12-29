@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Wallet, Tag, 
-  StickyNote, FolderOpen, Bot, Settings, Menu, X, LogOut, Sun, Moon 
+  StickyNote, FolderOpen, Bot, Settings, LogOut, Sun, Moon 
 } from 'lucide-react';
 import { db } from '../services/db';
 import { User } from '../types';
 import { useTheme } from './ThemeContext';
+import Dock from './Dock';
+import Beams from './Beams';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -16,14 +18,13 @@ const navItems = [
   { path: '/mural', label: 'Mural', icon: StickyNote },
   { path: '/arquivos', label: 'Arquivos', icon: FolderOpen },
   { path: '/ia', label: 'I.A. Nexus', icon: Bot },
-  { path: '/config', label: 'Configurações', icon: Settings },
+  { path: '/config', label: 'Config', icon: Settings },
 ];
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
 
   useEffect(() => {
@@ -33,117 +34,100 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     return () => window.removeEventListener('profile-updated', loadUser);
   }, []);
 
-  const toggleMobile = () => setIsMobileOpen(!isMobileOpen);
-
   const handleLogout = () => {
     db.logout();
     navigate('/login');
   };
 
+  // Convert navItems to Dock format
+  const dockItems = navItems.map(item => ({
+    icon: <item.icon size={24} />,
+    label: item.label,
+    onClick: () => navigate(item.path),
+    className: location.pathname === item.path ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-slate-700' : ''
+  }));
+
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden transition-colors duration-300">
-      {/* Sidebar Desktop & Mobile */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 dark:bg-slate-950 text-slate-100 transition-transform transform border-r border-slate-800
-        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} 
-        md:relative md:translate-x-0 flex flex-col
-      `}>
-        <div className="h-16 flex items-center px-6 border-b border-slate-800">
-          <div className="flex items-center gap-2 font-bold text-xl tracking-tight text-white">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">N</div>
-            NEXUS OS
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden transition-colors duration-300 relative">
+      
+      {/* Background Effect */}
+      <div className="absolute inset-0 z-0 opacity-50 pointer-events-none">
+        <Beams 
+          lightColor={theme === 'dark' ? '#ffffff' : '#94a3b8'} 
+          noiseIntensity={theme === 'dark' ? 1.75 : 0.8}
+        />
+      </div>
+
+      {/* Universal Top Header */}
+      <header className="h-16 shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-8 z-40 transition-colors relative">
+        {/* Brand */}
+        <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900 dark:text-white">
+          <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+            N
           </div>
-          <button className="md:hidden ml-auto" onClick={toggleMobile}>
-            <X size={20} />
-          </button>
+          <span className="hidden sm:inline">NEXUS OS</span>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setIsMobileOpen(false)}
-                className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-                  ${isActive 
-                    ? 'bg-blue-600 text-white shadow-md' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'}
-                `}
-              >
-                <item.icon size={18} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 border-t border-slate-800 space-y-2">
-           {/* Theme Toggle */}
-           <button 
-            onClick={toggleTheme}
-            className="flex items-center gap-3 w-full text-left text-slate-400 hover:text-white hover:bg-slate-800 px-3 py-2 rounded-lg text-sm transition-colors mb-2"
+        {/* Right Actions */}
+        <div className="flex items-center gap-3 sm:gap-6">
+          {/* Theme Toggle */}
+          <button 
+            onClick={toggleTheme} 
+            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"
+            title={theme === 'light' ? "Mudar para Modo Escuro" : "Mudar para Modo Claro"}
           >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-            {theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}
+            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
 
+          {/* User Profile */}
           <button 
-            onClick={() => navigate('/config?tab=profile')}
-            className="flex items-center gap-3 w-full text-left hover:bg-slate-800 p-2 rounded-lg transition-colors group"
-            title="Editar Perfil"
+            onClick={() => navigate('/config?tab=profile')} 
+            className="flex items-center gap-3 hover:bg-slate-100 dark:hover:bg-slate-800 p-1.5 rounded-xl transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
           >
-            {user?.avatarUrl ? (
-              <img src={user.avatarUrl} alt="User" className="w-9 h-9 rounded-full object-cover border border-slate-500 bg-slate-800 group-hover:border-slate-400" />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white uppercase border border-emerald-400 group-hover:border-emerald-300">
-                {(user?.name || 'User').substring(0, 2)}
-              </div>
-            )}
-            <div className="text-sm overflow-hidden flex-1">
-              <p className="font-medium text-white truncate group-hover:text-blue-200 transition-colors">{user?.name || 'Usuário'}</p>
-              <p className="text-xs text-slate-400 truncate">{user?.role || 'Membro'}</p>
-            </div>
+             <div className="relative">
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-slate-700" alt="User" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-emerald-500 flex items-center justify-center text-xs font-bold text-white uppercase border border-emerald-400 shadow-sm">
+                    {(user?.name || 'U').substring(0, 2)}
+                  </div>
+                )}
+                <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white dark:border-slate-900 rounded-full"></div>
+             </div>
+             <div className="hidden sm:block text-left">
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200 leading-none">{user?.name || 'Usuário'}</p>
+                <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider">{user?.role || 'Membro'}</p>
+             </div>
           </button>
 
+          <div className="w-px h-8 bg-slate-200 dark:bg-slate-800 mx-1"></div>
+
+          {/* Logout */}
           <button 
-            onClick={handleLogout}
-            className="flex items-center gap-3 w-full text-left text-slate-400 hover:text-rose-400 hover:bg-slate-800 px-3 py-2 rounded-lg text-sm transition-colors"
+            onClick={handleLogout} 
+            className="text-slate-400 hover:text-rose-500 transition-colors p-2"
+            title="Sair do Sistema"
           >
-            <LogOut size={16} />
-            Sair
+             <LogOut size={20} />
           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Mobile Header */}
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 md:hidden justify-between shrink-0 transition-colors">
-          <button onClick={toggleMobile} className="text-slate-600 dark:text-slate-300">
-            <Menu size={24} />
-          </button>
-          <span className="font-bold text-slate-800 dark:text-white">NEXUS</span>
-          <div className="w-6" /> {/* Spacer */}
-        </header>
-
-        {/* Page Content */}
-        <div className="flex-1 overflow-auto p-4 md:p-8">
-          <div className="max-w-7xl mx-auto h-full">
-            {children}
-          </div>
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden relative w-full custom-scrollbar z-10">
+        {/* Container centered with max-width */}
+        <div className="w-full max-w-7xl mx-auto p-4 md:p-8 pb-32">
+          {children}
         </div>
       </main>
 
-      {/* Overlay for mobile sidebar */}
-      {isMobileOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={() => setIsMobileOpen(false)}
-        />
-      )}
+      {/* Navigation Dock (Fixed at bottom) */}
+      <Dock 
+        items={dockItems} 
+        panelHeight={68}
+        baseItemSize={50}
+        magnification={70}
+      />
     </div>
   );
 };

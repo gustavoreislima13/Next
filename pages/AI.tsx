@@ -3,9 +3,10 @@ import { generateBusinessInsight, AIMode, naiveRepairJSON } from '../services/ge
 import { db } from '../services/db';
 import { StoredFile, Client, Transaction } from '../types';
 import { Send, Bot, RefreshCw, Key, ArrowRight, Mic, Image as ImageIcon, X, Zap, Brain, Sparkles, StopCircle, Radio, MessageCircle, Paperclip, FileText, Database, AlertTriangle, ExternalLink } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 export const AI: React.FC = () => {
+  const location = useLocation(); // Hook to access navigation state
   const [messages, setMessages] = useState<{role: 'user' | 'ai', text: string}[]>([
     { role: 'ai', text: 'Olá! Sou a I.A. Nexus. Tenho acesso completo ao banco de dados. \n\nVocê pode me perguntar coisas como: \n- "Quanto faturamos este mês?" \n- "Analise este arquivo PDF" \n- "Extraia os dados deste anexo para o sistema".' }
   ]);
@@ -32,6 +33,15 @@ export const AI: React.FC = () => {
     // Auto scroll
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  // Handle incoming prompts from other pages (e.g. CRM)
+  useEffect(() => {
+    if (location.state && location.state.prompt) {
+      setInput(location.state.prompt);
+      // Optional: Clean state to avoid persistence on refresh, 
+      // but react-router usually handles this per history entry.
+    }
+  }, [location]);
 
   const handleSend = async (textOverride?: string) => {
     const textToSend = textOverride || input;

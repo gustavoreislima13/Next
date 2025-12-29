@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/db';
 import { Transaction, Client, AppSettings, StoredFile } from '../types';
-import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown, Calendar, Wallet } from 'lucide-react';
+import { Plus, ArrowUpCircle, ArrowDownCircle, Trash2, RefreshCw, Search, FileText, UploadCloud, Paperclip, AlertTriangle, Edit2, Check, X, ChevronDown, Calendar, Wallet, Sparkles } from 'lucide-react';
 import { useToast } from '../components/ToastContext';
+import { generateBusinessInsight, naiveRepairJSON } from '../services/geminiService';
 
 export const Finance: React.FC = () => {
   const { addToast } = useToast();
@@ -29,6 +30,9 @@ export const Finance: React.FC = () => {
   const [txType, setTxType] = useState<'income' | 'expense'>('income');
   const [isNewClientMode, setIsNewClientMode] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  
+  // AI Extraction State
+  const [isAnalyzingReceipt, setIsAnalyzingReceipt] = useState(false);
 
   // Modal Client Autocomplete State
   const [formClientSearch, setFormClientSearch] = useState('');
@@ -159,6 +163,80 @@ export const Finance: React.FC = () => {
       addToast(err.message || "Erro ao salvar transação.", 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleReceiptAnalysis = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzingReceipt(true);
+    addToast("Analisando comprovante com IA... aguarde.", "info");
+
+    try {
+      // Convert to Base64
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve) => {
+        reader.onload = (e) => resolve((e.target?.result as string).split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+
+      const banks = settings.banks.join(', ');
+      const categories = settings.categories.join(', ');
+      const entities = settings.entities.join(', ');
+
+      const prompt = `
+        Analise este comprovante/fatura (Imagem ou PDF).
+        Extraia os dados para preencher um formulário financeiro.
+        
+        Dados de Contexto:
+        - Bancos Cadastrados: ${banks}
+        - Categorias: ${categories}
+        - Empresas: ${entities}
+
+        Retorne APENAS um JSON estrito com este formato:
+        {
+          "description": "Descrição curta e clara da transação",
+          "amount": 100.50 (Use ponto para decimal, sempre positivo),
+          "date": "YYYY-MM-DD",
+          "category": "Uma das categorias acima ou 'Outros'",
+          "account": "Nome do banco se identificado, ou vazio",
+          "entity": "Nome da empresa se identificada, ou vazio"
+        }
+      `;
+
+      const jsonStr = await generateBusinessInsight({
+        prompt,
+        document: base64,
+        mimeType: file.type,
+        mode: 'thinking'
+      });
+
+      // Parse and Apply
+      const cleanJson = naiveRepairJSON(jsonStr);
+      const data = JSON.parse(cleanJson);
+
+      setFormData(prev => ({
+        ...prev,
+        description: data.description || prev.description,
+        amount: typeof data.amount === 'number' ? data.amount : prev.amount,
+        date: data.date || prev.date,
+        category: data.category || prev.category,
+        account: data.account || prev.account,
+        entity: data.entity || prev.entity
+      }));
+      
+      // Auto-attach the file used for analysis
+      setAttachedFiles(prev => [...prev, file]);
+      
+      addToast("Formulário preenchido automaticamente!", "success");
+
+    } catch (error: any) {
+      console.error(error);
+      addToast("Não foi possível ler o comprovante. Tente preencher manualmente.", "warning");
+    } finally {
+      setIsAnalyzingReceipt(false);
+      e.target.value = ''; // Reset input
     }
   };
 
@@ -365,8 +443,8 @@ export const Finance: React.FC = () => {
       </div>
 
       {/* List */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-         <table className="w-full text-sm text-left">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden overflow-x-auto">
+         <table className="w-full text-sm text-left min-w-[800px]">
            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium border-b border-slate-100 dark:border-slate-700">
              <tr>
                <th className="px-4 py-3">Data</th>
@@ -421,9 +499,30 @@ export const Finance: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto animate-fade-in border border-slate-200 dark:border-slate-800">
              <div className={`p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center ${txType === 'income' ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-rose-50 dark:bg-rose-900/20'}`}>
-               <h2 className={`font-bold ${txType === 'income' ? 'text-emerald-800 dark:text-emerald-400' : 'text-rose-800 dark:text-rose-400'}`}>
-                 {editingId ? 'Editar' : 'Nova'} {txType === 'income' ? 'Receita' : 'Despesa'}
-               </h2>
+               <div className="flex items-center gap-3">
+                 <h2 className={`font-bold ${txType === 'income' ? 'text-emerald-800 dark:text-emerald-400' : 'text-rose-800 dark:text-rose-400'}`}>
+                   {editingId ? 'Editar' : 'Nova'} {txType === 'income' ? 'Receita' : 'Despesa'}
+                 </h2>
+                 {/* Smart Fill Button */}
+                 {!editingId && (
+                    <label className={`
+                      flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold cursor-pointer transition-colors shadow-sm
+                      ${isAnalyzingReceipt 
+                        ? 'bg-slate-200 text-slate-500' 
+                        : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:opacity-90'}
+                    `}>
+                       {isAnalyzingReceipt ? <RefreshCw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                       {isAnalyzingReceipt ? 'Analisando...' : 'Preencher via I.A.'}
+                       <input 
+                         type="file" 
+                         accept="image/*,application/pdf" 
+                         className="hidden" 
+                         disabled={isAnalyzingReceipt}
+                         onChange={handleReceiptAnalysis}
+                       />
+                    </label>
+                 )}
+               </div>
                <button onClick={resetForm} className="text-2xl leading-none opacity-50 hover:opacity-100 dark:text-slate-300">&times;</button>
              </div>
              

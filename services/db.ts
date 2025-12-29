@@ -1,17 +1,25 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Client, Transaction, StickyNote, StoredFile, AppSettings, UserProfile, User, AuditLog } from '../types';
 
+// --- CONFIGURAÇÃO HARDCODED (FIXA NO CÓDIGO) ---
+// Edite os valores abaixo. Eles serão os padrões sempre que o app carregar.
 const DEFAULT_SETTINGS: AppSettings = {
-  companyName: 'Nexus Enterprise',
-  cnpj: '00.000.000/0001-91',
-  entities: ['CMG', 'Everton Guerra'],
-  consultants: ['João Silva', 'Maria Souza'],
-  banks: ['Banco do Brasil', 'Nubank'],
-  serviceTypes: ['Consultoria', 'Projeto'],
-  categories: ['Operacional', 'Marketing', 'Pessoal'],
-  geminiApiKey: '',
-  supabaseUrl: '',
-  supabaseKey: ''
+  companyName: 'Nexus Enterprise', // Digite o nome da sua empresa aqui
+  cnpj: '00.000.000/0001-91',      // Digite o CNPJ aqui
+  entities: ['Matriz', 'Filial SP', 'Filial RJ'], // Suas empresas/entidades
+  consultants: ['Vendedor 1', 'Vendedor 2'],
+  banks: ['Banco do Brasil', 'Nubank', 'Caixa', 'Santander', 'Itaú', 'Inter', 'Cofre'], // Seus bancos
+  serviceTypes: ['Consultoria', 'Implementação', 'Venda de Produto', 'Manutenção'],
+  categories: ['Operacional', 'Marketing', 'Pessoal', 'Impostos', 'Folha de Pagamento', 'Fornecedores'],
+  
+  // --- CHAVES DE API (COLE SUAS CHAVES AQUI PARA FICAR FIXO) ---
+  geminiApiKey: 'AIzaSyAhh5XOBT3lLyqBcU3PpDYKeEJbrD1BzZo', 
+  supabaseUrl: 'https://qearqffblyeqnmgwgfqa.supabase.co',  
+  supabaseKey: 'sb_publishable_DDuT-LO8-7wn-wH4xHEVQQ_SBqyMtQR',  
+  
+  // --- WHATSAPP API (Opcional - Ex: Z-API, Evolution, UltraMsg) ---
+  whatsappApiUrl: '', 
+  whatsappApiToken: ''
 };
 
 const DEFAULT_PROFILE: UserProfile = { name: 'Admin', role: 'Gerente', avatarUrl: '' };
@@ -36,17 +44,28 @@ class DatabaseService {
   constructor() { this.initSupabase(); }
 
   private initSupabase() {
+    // We prioritize the Hardcoded DEFAULT_SETTINGS first if they exist in code
+    // Then we look at LocalSettings (which might be older)
+    // Then Env variables.
+    
+    // However, to ensure "Source Code" implies truth, we will merge Default into Local on load
+    // This logic ensures if you change the code above, it reflects in the app immediately.
     const s = this.getLocalSettings();
+    
     // Support Environment Variables (Vite standard)
     const envSupabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
     const envSupabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
 
-    // Prioritize ENV over local settings for security
-    const url = (envSupabaseUrl || s.supabaseUrl || '').trim();
-    const key = (envSupabaseKey || s.supabaseKey || '').trim();
+    // Logic: Code > Env > Local Storage (Standard fallback)
+    const url = (DEFAULT_SETTINGS.supabaseUrl || envSupabaseUrl || s.supabaseUrl || '').trim();
+    const key = (DEFAULT_SETTINGS.supabaseKey || envSupabaseKey || s.supabaseKey || '').trim();
 
     if (url && key) {
       try {
+        // Strict URL Validation to prevent "Failed to fetch" on garbage inputs
+        new URL(url); 
+        if (!url.startsWith('http')) throw new Error('Invalid protocol');
+        
         this.supabase = createClient(url, key);
         this.useSupabase = true;
       } catch (e) {
@@ -69,8 +88,18 @@ class DatabaseService {
     const msg = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
     
     // Check for specific API Key errors (invalid key, format, or unauthorized)
-    if (msg.includes('Invalid API key') || msg.includes('JWT') || msg.includes('service_role') || msg.includes('401') || msg.includes('403')) {
-        console.warn("Nexus DB: Supabase API Key rejected. Switching to Local Storage mode.");
+    // Also catch "Failed to fetch" which indicates network issues or invalid CORS/DNS
+    if (
+      msg.includes('Invalid API key') || 
+      msg.includes('JWT') || 
+      msg.includes('service_role') || 
+      msg.includes('401') || 
+      msg.includes('403') ||
+      msg.includes('Failed to fetch') ||
+      msg.includes('NetworkError') ||
+      msg.includes('Load failed')
+    ) {
+        console.warn("Nexus DB: Supabase connection failed (Auth or Network). Switching to Local Storage mode.");
         this.useSupabase = false;
         this.supabase = null;
         return true; // Indicates we handled it by downgrading
@@ -205,9 +234,20 @@ class DatabaseService {
 
   // Settings
   getLocalSettings(): AppSettings {
-    const s = this.getLocal<AppSettings>(KEYS.SET, DEFAULT_SETTINGS);
-    if (!s.geminiApiKey && DEFAULT_SETTINGS.geminiApiKey) s.geminiApiKey = DEFAULT_SETTINGS.geminiApiKey;
-    return s;
+    const local = this.getLocal<AppSettings>(KEYS.SET, DEFAULT_SETTINGS);
+    // MERGE STRATEGY: Hardcoded Source Code wins for Keys if they exist
+    return {
+        ...local,
+        geminiApiKey: DEFAULT_SETTINGS.geminiApiKey || local.geminiApiKey,
+        supabaseUrl: DEFAULT_SETTINGS.supabaseUrl || local.supabaseUrl,
+        supabaseKey: DEFAULT_SETTINGS.supabaseKey || local.supabaseKey,
+        whatsappApiUrl: DEFAULT_SETTINGS.whatsappApiUrl || local.whatsappApiUrl,
+        whatsappApiToken: DEFAULT_SETTINGS.whatsappApiToken || local.whatsappApiToken,
+        // Also ensure crucial arrays are not empty if local storage is cleared
+        banks: local.banks.length ? local.banks : DEFAULT_SETTINGS.banks,
+        categories: local.categories.length ? local.categories : DEFAULT_SETTINGS.categories,
+        entities: local.entities.length ? local.entities : DEFAULT_SETTINGS.entities,
+    };
   }
   async getSettings() { return this.getLocalSettings(); }
   async updateSettings(s: AppSettings) { 
