@@ -61,7 +61,7 @@ const DockLabel: React.FC<DockLabelProps> = ({ children, className = '', isHover
             absolute top-0 left-1/2 -translate-x-1/2 w-max whitespace-pre 
             rounded-md border border-slate-200 dark:border-slate-700 
             bg-slate-900 dark:bg-white px-2 py-1 text-xs text-white dark:text-slate-900 
-            font-medium shadow-xl z-50 pointer-events-none
+            font-medium shadow-xl z-50 pointer-events-none hidden sm:block
             ${className}
           `}
           role="tooltip"
@@ -104,7 +104,7 @@ const DockItem: React.FC<DockItemProps> = ({ icon, label, className = '', onClic
         relative inline-flex items-center justify-center rounded-full 
         bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 
         shadow-lg cursor-pointer outline-none transition-colors duration-200
-        hover:border-blue-400 dark:hover:border-blue-500
+        hover:border-blue-400 dark:hover:border-blue-500 flex-shrink-0
         ${className}
       `}
       tabIndex={0}
@@ -130,7 +130,7 @@ const Dock: React.FC<DockProps> = ({
 
   return (
     <motion.div 
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-end w-full max-w-full justify-center pointer-events-none"
+      className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-end w-full max-w-full justify-center pointer-events-none"
       style={{ height: panelHeight }}
     >
       <motion.div
@@ -145,6 +145,7 @@ const Dock: React.FC<DockProps> = ({
           bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl 
           border border-slate-200 dark:border-slate-800 
           px-4 pb-3 pt-3 shadow-2xl
+          max-w-[95vw] sm:max-w-fit overflow-x-auto scrollbar-hide
           ${className}
         `}
       >

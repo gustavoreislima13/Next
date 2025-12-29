@@ -1,12 +1,15 @@
+
 .tilted-card-figure {
   position: relative;
   width: 100%;
+  max-width: 100%;
   height: 100%;
   perspective: 800px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .tilted-card-mobile-alert {
@@ -19,7 +22,7 @@
 
 @media (max-width: 640px) {
   .tilted-card-mobile-alert {
-    display: block;
+    display: none; /* Often cleaner to just hide on mobile than warn */
   }
   .tilted-card-caption {
     display: none;
@@ -31,6 +34,9 @@
   transform-style: preserve-3d;
   width: 100%;
   height: 100%;
+  /* Ensures inner content stretches */
+  display: flex; 
+  flex-direction: column;
 }
 
 .tilted-card-img {

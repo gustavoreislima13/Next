@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../services/db';
 import { User } from '../types';
 import { LogIn, ShieldCheck } from 'lucide-react';
+import { Logo } from '../components/Logo';
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -32,11 +33,8 @@ export const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
-      <div className="mb-8 text-center animate-fade-in">
-        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/50">
-          <span className="text-3xl font-bold text-white">N</span>
-        </div>
-        <h1 className="text-3xl font-bold text-white tracking-tight">Nexus Enterprise OS</h1>
+      <div className="mb-8 text-center animate-fade-in flex flex-col items-center">
+        <Logo size={80} textClassName="text-white text-3xl mt-4" className="flex-col !gap-2" />
         <p className="text-slate-400 mt-2">Selecione seu perfil para acessar o sistema</p>
       </div>
 

@@ -9,15 +9,16 @@ import { User } from '../types';
 import { useTheme } from './ThemeContext';
 import Dock from './Dock';
 import Beams from './Beams';
+import { Logo } from './Logo';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/crm', label: 'CRM', icon: Users },
   { path: '/financeiro', label: 'Financeiro', icon: Wallet },
-  { path: '/precificacao', label: 'Precificação', icon: Tag },
+  { path: '/precificacao', label: 'Preço', icon: Tag },
   { path: '/mural', label: 'Mural', icon: StickyNote },
   { path: '/arquivos', label: 'Arquivos', icon: FolderOpen },
-  { path: '/ia', label: 'I.A. Nexus', icon: Bot },
+  { path: '/ia', label: 'I.A.', icon: Bot },
   { path: '/config', label: 'Config', icon: Settings },
 ];
 
@@ -26,12 +27,39 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const [user, setUser] = useState<User | null>(db.getCurrentUser());
+  
+  // Responsive Dock State
+  const [dockConfig, setDockConfig] = useState({
+    baseSize: 50,
+    magnification: 70,
+    distance: 140,
+    panelHeight: 68
+  });
 
   useEffect(() => {
     const loadUser = () => setUser(db.getCurrentUser());
     loadUser();
     window.addEventListener('profile-updated', loadUser);
-    return () => window.removeEventListener('profile-updated', loadUser);
+    
+    // Responsive Handler
+    const handleResize = () => {
+      const width = window.innerWidth;
+      if (width < 640) { // Mobile
+        setDockConfig({ baseSize: 40, magnification: 50, distance: 60, panelHeight: 60 });
+      } else if (width < 1024) { // Tablet
+        setDockConfig({ baseSize: 45, magnification: 60, distance: 100, panelHeight: 64 });
+      } else { // Desktop
+        setDockConfig({ baseSize: 50, magnification: 80, distance: 140, panelHeight: 68 });
+      }
+    };
+
+    handleResize(); // Init
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('profile-updated', loadUser);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   const handleLogout = () => {
@@ -41,7 +69,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Convert navItems to Dock format
   const dockItems = navItems.map(item => ({
-    icon: <item.icon size={24} />,
+    icon: <item.icon size={dockConfig.baseSize / 2} />, // Scale icon relative to button
     label: item.label,
     onClick: () => navigate(item.path),
     className: location.pathname === item.path ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-slate-700' : ''
@@ -61,12 +89,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Universal Top Header */}
       <header className="h-16 shrink-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 sm:px-8 z-40 transition-colors relative">
         {/* Brand */}
-        <div className="flex items-center gap-3 font-bold text-xl tracking-tight text-slate-900 dark:text-white">
-          <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-            N
-          </div>
-          <span className="hidden sm:inline">NEXUS OS</span>
-        </div>
+        <Logo size={40} className="hover:scale-105 transition-transform" />
 
         {/* Right Actions */}
         <div className="flex items-center gap-3 sm:gap-6">
@@ -124,9 +147,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* Navigation Dock (Fixed at bottom) */}
       <Dock 
         items={dockItems} 
-        panelHeight={68}
-        baseItemSize={50}
-        magnification={70}
+        panelHeight={dockConfig.panelHeight}
+        baseItemSize={dockConfig.baseSize}
+        magnification={dockConfig.magnification}
+        distance={dockConfig.distance}
       />
     </div>
   );
